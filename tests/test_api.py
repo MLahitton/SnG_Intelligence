@@ -162,6 +162,9 @@ def test_only_explicit_routes_no_cors_or_proxy(settings, mock_backend):
         ("/api/intelligence/voice", "post"),
         ("/api/intelligence/voice/transcribe", "post"),
         ("/api/intelligence/voice/speech", "post"),
+        ("/api/intelligence/live/session", "post"),
+        ("/api/intelligence/live/delegate", "post"),
+        ("/api/intelligence/live/close", "post"),
     }
     with TestClient(app) as api:
         for path in [

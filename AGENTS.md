@@ -901,7 +901,7 @@ When a requested implementation conflicts with one of these rules, stop that spe
    SnG Control remains the sole operational source of truth.
 6. TTS reads the answer without changing its meaning. Do not silently truncate text, return
    empty audio on failure, or invent fallback responses. No custom voices in Voice 1A.
-7. Realtime requires an explicit architectural block. Voice 1A is request/response only,
+7. Realtime Voice 2A below is the explicit architectural block. Voice 1A remains request/response only,
    without WebRTC, WebSockets, streaming to the client, VAD, barge-in or conversation memory.
 
 Voice 1A explicitly enables `/docs` and `/openapi.json` with public contract documentation.
@@ -927,6 +927,39 @@ small adapters; model/voice configuration is server-owned and never supplied by 
    never recalculate deadlines or Leak Time. Unknown labels do not acquire invented meanings.
 9. Clarification does not create memory. A later “the first one” request has no guaranteed
    context. Do not add persistence or provider conversations to solve this limitation.
+
+## Realtime Voice 2A invariants
+
+1. Live is a conversational interface; SnG Control remains the business authority.
+   Browser audio goes directly to GPT-Live over WebRTC. No PCM relay in this service.
+2. Live uses Responses delegation with exactly one strict function,
+   `consult_sng_intelligence(question)`. It calls the existing stateless Agent Core.
+   Never expose its six business tools directly to Live or add arbitrary dispatch.
+3. Delegation resolves conversational references into a self-contained question.
+   Session context lives at the provider; no local conversation or business memory.
+   The chat/fallback requests remain independent as before.
+4. Create/delegate/close require the existing official Management identity check.
+   Ownership uses the backend subject, never caller-supplied identity. Every delegation
+   is reauthorized. IDs are bounded opaque values, never URLs or executable selectors.
+5. The in-memory registry stores only ownership, timing and bounded call IDs/status.
+   No SDP, tokens, audio, transcripts, questions or responses. Expire and remove entries;
+   limit concurrent creates/calls and reject replay. No DB, Redis or durable sessions.
+6. `/live/close` revokes local delegation only. The browser must send `session.close`
+   and close WebRTC. Local expiry is not remote media termination. Do not reuse the
+   SIP-only provider hangup endpoint or claim an unverified remote duration guarantee.
+7. Send `session.store=false` in the supported Live schema. Preserve `store=false`
+   in the existing Agent Responses adapter. Do not invent unsupported nested fields.
+   Keep TLS verification, fixed official origin, bounded async I/O and safe errors.
+8. API keys remain server-side; Google credentials never enter Live/Responses content
+   or audio providers. Logs contain metadata only, never SDP or conversational content.
+9. Live prompts require faithful use of the tool's spokenAnswer and verified facts.
+   Canonical HTTP references/presentation come from Agent evidence. A frontend relay
+   is not provider attestation; never treat a browser-supplied tool output or Live's
+   spoken paraphrase as independently verified operational truth.
+10. Preserve `/voice/transcribe`, `/voice`, `/voice/speech` as independent fallback.
+    Live handles turn-taking/barge-in natively; do not add Python VAD or manual TTS queues.
+11. This block is server-only. Frontend WebRTC and real conversation smoke are separate.
+    Keep Live tests offline with fakes/HTTP mocks. No provider calls in automated tests.
 10. Natural answers use human deadline/status language, not “Leak Time” jargon. Keep
     official internal enums and business calculations unchanged; preserve proper names.
 11. Public task reference labels use the centralized Spanish task glossary. Unknown types

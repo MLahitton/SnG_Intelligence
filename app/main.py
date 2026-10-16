@@ -1,6 +1,7 @@
+import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Annotated
 
 import httpx
@@ -11,6 +12,7 @@ from fastapi.responses import JSONResponse
 from app.agent.contracts import ChatRequest, ChatResponse
 from app.agent.core import Agent
 from app.api.dependencies import get_agent, get_control_client
+from app.api.live import router as live_router
 from app.api.voice import router as voice_router
 from app.auth.management_guard import require_management
 from app.clients.sng_control import SnGControlClient
@@ -18,6 +20,7 @@ from app.clients.transport import create_http_client
 from app.core.config import Settings
 from app.core.errors import IntelligenceError
 from app.core.observability import CorrelationMiddleware
+from app.live.registry import LiveRegistry
 
 
 def create_app(
@@ -36,9 +39,17 @@ def create_app(
             config.sng_control_base_url, config.sng_control_timeout_seconds, transport
         ) as http:
             application.state.control_http = http
+            registry = LiveRegistry()
+            application.state.live_registry = registry
+            cleanup = asyncio.create_task(registry.maintain())
             try:
                 yield
             finally:
+                cleanup.cancel()
+                with suppress(asyncio.CancelledError):
+                    await cleanup
+                registry.clear()
+                del application.state.live_registry
                 del application.state.control_http
 
     application = FastAPI(
@@ -53,6 +64,7 @@ def create_app(
     )
     application.add_middleware(CorrelationMiddleware)
     application.include_router(voice_router)
+    application.include_router(live_router)
 
     @application.exception_handler(IntelligenceError)
     async def safe_error(request: Request, exc: IntelligenceError) -> JSONResponse:

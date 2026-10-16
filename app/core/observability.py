@@ -57,6 +57,9 @@ class CorrelationMiddleware:
                                 "transcription_duration_ms",
                                 "agent_duration_ms",
                                 "speech_duration_ms",
+                                "live_event",
+                                "live_duration_seconds",
+                                "live_delegations_count",
                             )
                             if key in scope["state"]
                         },
