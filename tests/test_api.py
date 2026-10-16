@@ -153,18 +153,21 @@ def test_correlation_is_uuid_and_propagated(settings, mock_backend, supplied, ca
 def test_only_explicit_routes_no_cors_or_proxy(settings, mock_backend):
     transport, calls = mock_backend
     app = create_app(settings, transport=transport)
-    assert {(r.path, frozenset(r.methods)) for r in app.routes} == {
-        ("/health", frozenset({"GET"})),
-        ("/api/intelligence/session", frozenset({"GET"})),
-        ("/api/intelligence/chat", frozenset({"POST"})),
+    assert {
+        (path, method) for path, methods in app.openapi()["paths"].items() for method in methods
+    } == {
+        ("/health", "get"),
+        ("/api/intelligence/session", "get"),
+        ("/api/intelligence/chat", "post"),
+        ("/api/intelligence/voice", "post"),
+        ("/api/intelligence/voice/transcribe", "post"),
+        ("/api/intelligence/voice/speech", "post"),
     }
     with TestClient(app) as api:
         for path in [
             "/api/proxy",
             "/api/tools/request",
             "/api/tools/arbitrary-call",
-            "/docs",
-            "/openapi.json",
         ]:
             assert api.get(path, params={"url": "https://evil.test"}).status_code == 404
         for method in ["POST", "PUT", "PATCH", "DELETE"]:

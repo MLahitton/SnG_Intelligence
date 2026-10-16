@@ -15,6 +15,8 @@ from app.agent.contracts import (
     ToolDefinition,
 )
 from app.agent.errors import InvalidToolCall, ToolResultTooLarge, UngroundedReference
+from app.agent.presentation import PresentationEvidence
+from app.agent.prompt import TASK_LABELS_ES
 from app.agent.security import CredentialGuard
 from app.tools import ReadTools
 
@@ -73,8 +75,14 @@ class ToolBox:
         self._guard = guard
         self._references: dict[str, Reference] = {}
         self._ambiguous: set[UUID] = set()
+        self.presentation = PresentationEvidence()
 
     def _add(self, reference: Reference) -> None:
+        if isinstance(reference, TaskReference):
+            # Only public display text changes; IDs and raw tool enums remain authoritative.
+            reference = reference.model_copy(
+                update={"label": TASK_LABELS_ES.get(reference.label, "Tarea")}
+            )
         identifier = (
             reference.task_id if isinstance(reference, TaskReference) else reference.project_id
         )
@@ -105,6 +113,7 @@ class ToolBox:
         data: JsonValue
         if call.name == "get_management_overview":
             overview = await self._tools.get_management_overview()
+            self.presentation.overview(overview)
             data = overview.model_dump(mode="json", by_alias=True)
             for item in overview.attention.items:
                 refs.extend(
@@ -121,6 +130,8 @@ class ToolBox:
                 )
         elif call.name == "list_management_tasks":
             tasks = await self._tools.list_management_tasks()
+            for task in tasks:
+                self.presentation.management_task(task)
             data = [task.model_dump(mode="json", by_alias=True) for task in tasks]
             for task in tasks:
                 refs.extend(
@@ -137,6 +148,7 @@ class ToolBox:
                 )
         elif call.name == "find_projects" and isinstance(arguments, SearchArguments):
             projects = await self._tools.find_projects(arguments.query)
+            self.presentation.candidates(projects)
             data = {
                 "candidates": [p.model_dump(mode="json", by_alias=True) for p in projects],
                 "ambiguous": len(projects) > 1,
@@ -152,6 +164,7 @@ class ToolBox:
                 raise InvalidToolCall()  # No arbitrary selection from an ambiguous lookup.
             if call.name == "get_project_details":
                 details = await self._tools.get_project_details(arguments.project_id)
+                self.presentation.details(details)
                 data = details.model_dump(mode="json", by_alias=True)
                 refs.append(
                     ProjectReference(
@@ -182,6 +195,10 @@ class ToolBox:
             "available_references": {
                 key: ref.model_dump(mode="json", by_alias=True)
                 for key, ref in self._references.items()
+            },
+            "available_presentation": {
+                key: item.model_dump(mode="json", by_alias=True)
+                for key, item in self.presentation.items.items()
             },
         }
         result = json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))

@@ -4,8 +4,10 @@ from collections.abc import MutableMapping
 
 from app.agent.contracts import AgentModel, ChatResponse, ModelMessage
 from app.agent.errors import AgentLimitExceeded, InvalidModelResponse, InvalidToolCall
+from app.agent.rendering import render_answer
 from app.agent.security import CredentialGuard
 from app.agent.toolbox import TOOL_DEFINITIONS, ToolBox
+from app.contracts.presentation import ProjectPresentation
 
 MAX_TOOL_ROUNDS = 6
 MAX_TOOL_CALLS = 8
@@ -47,10 +49,28 @@ class Agent:
                 if turn.calls or not turn.answer.answer.strip():
                     raise InvalidModelResponse()
                 self._guard.check(turn.answer.model_dump_json())
-                return ChatResponse(
-                    answer=turn.answer.answer,
-                    references=self._tools.references(turn.answer.reference_keys),
+                # Spoken prose is not an independent factual channel. Reject divergence,
+                # then render both surfaces from the same content and evidence.
+                if turn.answer.spoken_answer != turn.answer.answer:
+                    raise InvalidModelResponse()
+                presentation = self._tools.presentation.build(
+                    turn.answer.response_type, turn.answer.presentation_keys
                 )
+                content = turn.answer.answer
+                if isinstance(presentation, ProjectPresentation):
+                    name = presentation.project.project_name
+                    if not content.startswith(name):
+                        content = f"{name}: {content}"
+                answer, spoken = render_answer(content, self._tools.presentation.names)
+                response = ChatResponse(
+                    response_type=turn.answer.response_type,
+                    answer=answer,
+                    spoken_answer=spoken,
+                    references=self._tools.references(turn.answer.reference_keys),
+                    presentation=presentation,
+                )
+                self._guard.check(response.model_dump_json())
+                return response
             if not turn.calls:
                 raise InvalidModelResponse()
             if round_number == MAX_TOOL_ROUNDS or len(names) + len(turn.calls) > MAX_TOOL_CALLS:

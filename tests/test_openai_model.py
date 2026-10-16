@@ -29,7 +29,17 @@ pytestmark = pytest.mark.anyio
 KEY = "fake-sdk-api-key"
 
 
-def output_message(text='{"answer":"Hola","reference_keys":[]}', **overrides):
+def output_message(text=None, **overrides):
+    if text is None and not overrides.pop("null_text", False):
+        text = json.dumps(
+            {
+                "responseType": "direct",
+                "answer": "Hola",
+                "spokenAnswer": "Hola",
+                "reference_keys": [],
+                "presentation_keys": [],
+            }
+        )
     return {
         "id": "msg_test",
         "type": "message",
@@ -204,7 +214,7 @@ async def test_sdk_network_errors_safe(failure, error_type):
         response_body(status="failed", error={"code": "server_error", "message": KEY + TOKEN}),
         response_body(status="in_progress"),
         response_body(status="queued"),
-        response_body([output_message(None)]),
+        response_body([output_message(None, null_text=True)]),
         {"status": "completed", "output": None},
         response_body([]),
         response_body([reasoning_item()]),
@@ -356,7 +366,15 @@ async def test_responses_through_core_preserves_dispatch_and_evidence(mock_backe
             json=response_body(
                 [
                     output_message(
-                        json.dumps({"answer": "Hay 19 proyectos.", "reference_keys": [key]})
+                        json.dumps(
+                            {
+                                "responseType": "direct",
+                                "answer": "Hay 19 proyectos.",
+                                "spokenAnswer": "Hay 19 proyectos.",
+                                "reference_keys": [key],
+                                "presentation_keys": ["metric:total_projects"],
+                            }
+                        )
                     )
                 ]
             ),

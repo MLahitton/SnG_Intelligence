@@ -2,8 +2,10 @@ from dataclasses import dataclass
 from typing import Annotated, Literal, Protocol
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
+
+from app.contracts.presentation import Presentation, ResponseType
 
 
 class StrictModel(BaseModel):
@@ -41,13 +43,27 @@ Reference = Annotated[ProjectReference | TaskReference, Field(discriminator="typ
 
 
 class ChatResponse(StrictModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    response_type: ResponseType
     answer: str
+    spoken_answer: str
     references: list[Reference]
+    presentation: Presentation
+
+    @model_validator(mode="after")
+    def matching_presentation(self) -> "ChatResponse":
+        if self.presentation.kind != self.response_type:
+            raise ValueError("Presentation must match response type")
+        return self
 
 
 class ModelAnswer(StrictModel):
+    model_config = ConfigDict(populate_by_name=True)
+    response_type: ResponseType = Field(alias="responseType")
     answer: str = Field(min_length=1, max_length=12000)
+    spoken_answer: str = Field(min_length=1, max_length=12000, alias="spokenAnswer")
     reference_keys: list[str] = Field(max_length=50)
+    presentation_keys: list[str] = Field(max_length=50)
 
 
 class NoArguments(StrictModel):

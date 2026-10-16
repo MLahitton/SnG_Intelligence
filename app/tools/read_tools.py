@@ -76,4 +76,26 @@ class ReadTools:
                         city=project.city,
                     )
                 )
-        return candidates
+        normalized = " ".join(terms)
+        exact_names = [
+            candidate
+            for candidate in candidates
+            if " ".join(candidate.project_name.casefold().split()) == normalized
+        ]
+        if exact_names:
+            # Exact identity is stronger than partial/auxiliary matches. Duplicate exact
+            # names remain ambiguous; never choose an arbitrary candidate within the tier.
+            return exact_names
+
+        def priority(candidate: ProjectCandidate) -> int:
+            name = " ".join(candidate.project_name.casefold().split())
+            if name == normalized:
+                return 0
+            if all(term in name for term in terms):
+                return 1
+            auxiliary = f"{candidate.client_name or ''} {candidate.city}".casefold()
+            if all(term in auxiliary for term in terms):
+                return 2
+            return 3  # SG remains a supported alternative.
+
+        return sorted(candidates, key=priority)  # Stable within a tier; no first-result choice.

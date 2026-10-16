@@ -1,12 +1,8 @@
-import logging
 import os
-import ssl
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-import httpx
 import openai
-import truststore
 from openai.types.responses import (
     Response,
     ResponseFunctionToolCall,
@@ -34,6 +30,7 @@ from app.agent.errors import (
     ProviderUnavailable,
 )
 from app.agent.prompt import SYSTEM_PROMPT
+from app.clients.openai import openai_client
 from app.core.errors import IntelligenceError
 
 
@@ -210,24 +207,5 @@ async def configured_model() -> AsyncIterator[OpenAIModel]:
     model = os.environ.get("SNG_INTELLIGENCE_MODEL", "").strip()
     if not key.get_secret_value().strip() or not model:
         raise AgentUnavailable()
-    # SDK debug logs may contain request/response bodies. Never propagate them.
-    sdk_logger = logging.getLogger("openai")
-    if not sdk_logger.handlers:
-        sdk_logger.addHandler(logging.NullHandler())
-    sdk_logger.propagate = False
-    sdk_logger.setLevel(logging.CRITICAL)
-    tls = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    async with httpx.AsyncClient(
-        verify=tls,
-        trust_env=False,
-        follow_redirects=False,
-        timeout=30,
-    ) as http:
-        async with openai.AsyncOpenAI(
-            api_key=key.get_secret_value(),
-            base_url="https://api.openai.com/v1",
-            http_client=http,
-            timeout=30,
-            max_retries=0,
-        ) as client:
-            yield OpenAIModel(client, model)
+    async with openai_client(key, request_timeout_seconds=30) as client:
+        yield OpenAIModel(client, model)

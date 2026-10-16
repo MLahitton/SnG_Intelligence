@@ -887,3 +887,51 @@ When a requested implementation conflicts with one of these rules, stop that spe
   failures abort generation; do not fabricate a factual answer after a failed read.
 - Keep tests offline using FakeModel and mocked SDK HTTP. A real provider smoke
   requires temporary environment credentials and must never print or persist them.
+
+## Voice 1A invariants
+
+1. Voice uses the same Agent Core as text; never duplicate orchestration, tools or grounding.
+2. Do not durably persist audio, transcripts or generated speech, store them as product data,
+   or retain uploaded/generated files after the request. Starlette may use internal temporary
+   spooling; do not claim that audio never touches disk. Keep buffers bounded and close temporary
+   resources on completion, cancellation and failure.
+3. Never send the Google token, user Authorization headers or auth context to STT/TTS or the LLM.
+4. Do not log audio, full transcripts, answers, multipart bodies, filenames or credentials.
+5. STT is not a business authority. Pass its usable transcript to the existing Agent Core;
+   SnG Control remains the sole operational source of truth.
+6. TTS reads the answer without changing its meaning. Do not silently truncate text, return
+   empty audio on failure, or invent fallback responses. No custom voices in Voice 1A.
+7. Realtime requires an explicit architectural block. Voice 1A is request/response only,
+   without WebRTC, WebSockets, streaming to the client, VAD, barge-in or conversation memory.
+
+Voice 1A explicitly enables `/docs` and `/openapi.json` with public contract documentation.
+All three Voice endpoints require the existing Management guard. Audio providers are separate
+small adapters; model/voice configuration is server-owned and never supplied by the caller.
+
+## Presentation & Voice 1B invariants
+
+1. The official project name is the primary conversational identity, including SG searches.
+2. SG is secondary metadata and an alternative search identifier; never select the first
+   candidate arbitrarily when several projects match.
+3. Do not repeat “SnG Control” as a redundant suffix. Mention the source when requested or
+   useful to explain a limitation or data availability.
+4. `spokenAnswer` must not introduce facts, figures, entities or conclusions beyond `answer`.
+   Both renderings share one source content; this block rejects independently generated
+   spoken paraphrases and applies only deterministic presentation transformations.
+5. Build typed presentation metadata from run-local tool evidence. Model-selected keys are
+   selectors only; model-supplied IDs, labels, metrics, states and dates are not authority.
+6. TTS presents; it does not interpret. `responseType` selects centrally defined style only.
+   Preserve proper names; pronunciation changes require an explicit, minimal lexicon.
+7. Voice and text continue using the same Agent Core, tools, grounding and authorization.
+8. Keep original timestamps in evidence/presentation. Natural date display uses America/Bogota;
+   never recalculate deadlines or Leak Time. Unknown labels do not acquire invented meanings.
+9. Clarification does not create memory. A later “the first one” request has no guaranteed
+   context. Do not add persistence or provider conversations to solve this limitation.
+10. Natural answers use human deadline/status language, not “Leak Time” jargon. Keep
+    official internal enums and business calculations unchanged; preserve proper names.
+11. Public task reference labels use the centralized Spanish task glossary. Unknown types
+    display a neutral “Tarea”; never let the model invent the label or change an ID.
+12. Marin is the provisional voice selection in configuration examples, not an architectural
+    default. Keep voice and model environment-configurable. TTS delivery is naturally Colombian,
+    warm and conversational, with organic rhythm and subtle emphasis; no forced regional accent.
+    Vocal interpretation never permits changing spokenAnswer words or interpreting business facts.

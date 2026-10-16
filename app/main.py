@@ -1,5 +1,4 @@
 import logging
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -8,20 +7,17 @@ import httpx
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import SecretStr
 
-from app.agent.contracts import AgentModel, ChatRequest, ChatResponse
+from app.agent.contracts import ChatRequest, ChatResponse
 from app.agent.core import Agent
-from app.agent.security import CredentialGuard
-from app.agent.toolbox import ToolBox
-from app.api.dependencies import get_agent_model, get_control_client, get_management_client
-from app.auth.management_guard import extract_bearer, require_management
+from app.api.dependencies import get_agent, get_control_client
+from app.api.voice import router as voice_router
+from app.auth.management_guard import require_management
 from app.clients.sng_control import SnGControlClient
 from app.clients.transport import create_http_client
 from app.core.config import Settings
 from app.core.errors import IntelligenceError
 from app.core.observability import CorrelationMiddleware
-from app.tools import ReadTools
 
 
 def create_app(
@@ -34,6 +30,8 @@ def create_app(
         logging.getLogger("sng_intelligence").setLevel(logging.INFO)
         logging.getLogger("httpx").setLevel(logging.WARNING)
         logging.getLogger("httpcore").setLevel(logging.WARNING)
+        # Multipart debug messages include parser events; do not log upload contents.
+        logging.getLogger("python_multipart").setLevel(logging.CRITICAL)
         async with create_http_client(
             config.sng_control_base_url, config.sng_control_timeout_seconds, transport
         ) as http:
@@ -47,12 +45,14 @@ def create_app(
         title="SnG Intelligence",
         version="0.1.0",
         lifespan=lifespan,
-        docs_url=None,
+        docs_url="/docs",
         redoc_url=None,
-        openapi_url=None,
+        openapi_url="/openapi.json",
+        swagger_ui_oauth2_redirect_url=None,
         debug=False,
     )
     application.add_middleware(CorrelationMiddleware)
+    application.include_router(voice_router)
 
     @application.exception_handler(IntelligenceError)
     async def safe_error(request: Request, exc: IntelligenceError) -> JSONResponse:
@@ -79,19 +79,9 @@ def create_app(
     @application.post("/api/intelligence/chat", response_model=ChatResponse)
     async def chat(
         body: ChatRequest,
-        request: Request,
-        client: Annotated[SnGControlClient, Depends(get_management_client)],
-        model: Annotated[AgentModel, Depends(get_agent_model)],
+        agent: Annotated[Agent, Depends(get_agent)],
     ) -> ChatResponse:
-        guard = CredentialGuard(
-            extract_bearer(request.headers.getlist("authorization")),
-            SecretStr(os.environ.get("OPENAI_API_KEY", "")),
-        )
-        metrics: dict[str, object] = {}
-        request.state.agent_metrics = metrics
-        return await Agent(model, ToolBox(ReadTools(client), guard), guard, metrics).run(
-            body.message
-        )
+        return await agent.run(body.message)
 
     @application.get("/api/intelligence/session")
     async def session(

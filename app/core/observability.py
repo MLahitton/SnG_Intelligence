@@ -49,6 +49,17 @@ class CorrelationMiddleware:
                         "duration_ms": round((perf_counter() - start) * 1000, 2),
                         "status": status,
                         "error_type": scope["state"].get("error_type"),
+                        **{
+                            key: scope["state"][key]
+                            for key in (
+                                "audio_size_bytes",
+                                "provider_stage",
+                                "transcription_duration_ms",
+                                "agent_duration_ms",
+                                "speech_duration_ms",
+                            )
+                            if key in scope["state"]
+                        },
                         **scope["state"].get("agent_metrics", {}),
                     }
                 )

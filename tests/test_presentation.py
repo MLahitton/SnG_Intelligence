@@ -13,6 +13,7 @@ from test_openai_model import KEY, function_call, output_message, response_body
 
 from app.agent.openai_model import OpenAIModel
 from app.agent.prompt import MANAGEMENT_LABELS_ES, SYSTEM_PROMPT
+from app.agent.rendering import render_answer
 
 
 @pytest.mark.parametrize(
@@ -145,6 +146,9 @@ async def test_presentation_context_round_trip_preserves_evidence(
                         json.dumps(
                             {
                                 "answer": f"{project_name}: {prose}",
+                                "spokenAnswer": f"{project_name}: {prose}",
+                                "responseType": "direct",
+                                "presentation_keys": [],
                                 "reference_keys": [f"project:{PROJECT_ID}", f"task:{TASK_ID}"],
                             },
                             ensure_ascii=False,
@@ -174,9 +178,71 @@ async def test_presentation_context_round_trip_preserves_evidence(
     assert result.references[0].project_id == UUID(PROJECT_ID)
     assert result.references[0].label == project_name
     assert result.references[1].task_id == UUID(TASK_ID)
-    assert result.references[1].label == task_type  # Grounding labels remain authoritative.
+    assert result.references[1].label == MANAGEMENT_LABELS_ES[task_type]
     assert [r.model_dump(mode="json", by_alias=True) for r in result.references] == [
         evidence_refs[f"project:{PROJECT_ID}"],
         evidence_refs[f"task:{TASK_ID}"],
     ]
     assert json.loads(result.model_dump_json().encode("utf-8"))["answer"] == result.answer
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("Su Leak Time está en tiempo.", "La tarea está en tiempo."),
+        ("El Leak Time está sin iniciar.", "La tarea está sin iniciar."),
+        ("Revisar el Leak Time.", "Revisar el plazo."),
+        ("LeakTimeStatus: DueToday.", "estado del plazo: Vence hoy."),
+    ],
+)
+def test_natural_views_use_human_deadline_language(source, expected):
+    assert render_answer(source, set()) == (expected, expected)
+
+
+def test_deadline_language_preserves_official_project_names():
+    name = "Casa Leak Time"
+    visual, spoken = render_answer(f"{name}: Su Leak Time está en tiempo.", {name})
+    assert visual == spoken == f"{name}: La tarea está en tiempo."
+    assert "evita el término técnico «Leak Time»" in SYSTEM_PROMPT
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "tool",
+    [
+        "get_management_overview",
+        "list_management_tasks",
+        "get_project_details",
+    ],
+)
+@pytest.mark.parametrize(
+    "task_type,label",
+    [
+        ("PrepareQuotation", "Preparar cotización"),
+        ("ReviewQuotation", "Revisar cotización"),
+        ("PresentQuotationToClient", "Presentar cotización al cliente"),
+        ("FutureTaskType", "Tarea"),
+    ],
+)
+async def test_public_task_labels_are_human_and_ids_and_tool_enums_unchanged(
+    mock_backend, payloads, tool, task_type, label
+):
+    from test_agent import FakeModel, call, final
+
+    payloads["/api/management/overview"]["attention"]["items"][0]["taskType"] = task_type
+    payloads["/api/management/tasks"][0]["type"] = task_type
+    payloads[f"/api/projects/{PROJECT_ID}/tasks"][0]["type"] = task_type
+    original = copy.deepcopy(payloads)
+    transport, _ = mock_backend
+    model = FakeModel(
+        call(tool, {"project_id": PROJECT_ID} if tool == "get_project_details" else {}),
+        final(keys=[f"task:{TASK_ID}"]),
+    )
+    result, _ = await run_agent(model, transport)
+    assert result.references[0].label == label
+    assert str(result.references[0].task_id) == TASK_ID
+    assert str(result.references[0].project_id) == PROJECT_ID
+    envelope = json.loads(model.inputs[1][0][-1].content)
+    assert envelope["available_references"][f"task:{TASK_ID}"]["label"] == label
+    assert task_type in json.dumps(envelope["data"])
+    assert payloads == original

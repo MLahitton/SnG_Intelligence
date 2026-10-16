@@ -40,8 +40,18 @@ class FakeModel:
         return result
 
 
-def final(answer="Respuesta basada en datos.", keys=()):
-    return ModelTurn(answer=ModelAnswer(answer=answer, reference_keys=list(keys)))
+def final(
+    answer="Respuesta basada en datos.", keys=(), *, kind="direct", presentation=(), spoken=None
+):
+    return ModelTurn(
+        answer=ModelAnswer(
+            answer=answer,
+            reference_keys=list(keys),
+            response_type=kind,
+            spoken_answer=answer if spoken is None else spoken,
+            presentation_keys=list(presentation),
+        )
+    )
 
 
 def call(name, arguments=None, identifier="call_1"):
@@ -187,7 +197,7 @@ async def test_ambiguous_lookup_does_not_select_project(mock_backend, payloads):
     ]
     transport, calls = mock_backend
     model = FakeModel(
-        call("find_projects", {"query": "Proyecto"}),
+        call("find_projects", {"query": "Proy"}),
         final(
             "Hay varios candidatos. ¿Cuál proyecto?",
             [f"project:{PROJECT_ID}", f"project:{CLIENT_ID}"],
@@ -201,7 +211,7 @@ async def test_ambiguous_lookup_does_not_select_project(mock_backend, payloads):
     with pytest.raises(InvalidToolCall):
         await run_agent(
             FakeModel(
-                call("find_projects", {"query": "Proyecto"}),
+                call("find_projects", {"query": "Proy"}),
                 call("get_project_details", {"project_id": PROJECT_ID}, "next"),
             ),
             transport,

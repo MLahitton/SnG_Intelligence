@@ -125,7 +125,10 @@ def test_chat_exact_reference_contract_and_safe_metrics(settings, mock_backend, 
         )
     assert response.status_code == 200
     assert response.json() == {
+        "responseType": "direct",
         "answer": "Respuesta privada",
+        "spokenAnswer": "Respuesta privada",
+        "presentation": {"kind": "direct", "metric": None},
         "references": [
             {
                 "type": "project",
