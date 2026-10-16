@@ -1,19 +1,27 @@
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
 import httpx
 from fastapi import Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import SecretStr
 
-from app.api.dependencies import get_control_client
-from app.auth.management_guard import require_management
+from app.agent.contracts import AgentModel, ChatRequest, ChatResponse
+from app.agent.core import Agent
+from app.agent.security import CredentialGuard
+from app.agent.toolbox import ToolBox
+from app.api.dependencies import get_agent_model, get_control_client, get_management_client
+from app.auth.management_guard import extract_bearer, require_management
 from app.clients.sng_control import SnGControlClient
 from app.clients.transport import create_http_client
 from app.core.config import Settings
 from app.core.errors import IntelligenceError
 from app.core.observability import CorrelationMiddleware
+from app.tools import ReadTools
 
 
 def create_app(
@@ -58,6 +66,32 @@ def create_app(
     @application.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @application.exception_handler(RequestValidationError)
+    async def safe_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        # FastAPI defaults echo invalid inputs; request bodies can contain secrets.
+        request.state.error_type = "invalid_request"
+        return JSONResponse(
+            {"error": "invalid_request", "requestId": str(request.state.request_id)},
+            status_code=422,
+        )
+
+    @application.post("/api/intelligence/chat", response_model=ChatResponse)
+    async def chat(
+        body: ChatRequest,
+        request: Request,
+        client: Annotated[SnGControlClient, Depends(get_management_client)],
+        model: Annotated[AgentModel, Depends(get_agent_model)],
+    ) -> ChatResponse:
+        guard = CredentialGuard(
+            extract_bearer(request.headers.getlist("authorization")),
+            SecretStr(os.environ.get("OPENAI_API_KEY", "")),
+        )
+        metrics: dict[str, object] = {}
+        request.state.agent_metrics = metrics
+        return await Agent(model, ToolBox(ReadTools(client), guard), guard, metrics).run(
+            body.message
+        )
 
     @application.get("/api/intelligence/session")
     async def session(

@@ -26,6 +26,7 @@ pytestmark = pytest.mark.anyio
         ("get_current_user", "/api/auth/me"),
         ("get_management_overview", "/api/management/overview"),
         ("list_management_tasks", "/api/management/tasks"),
+        ("list_projects", "/api/projects"),
         ("get_project", f"/api/projects/{PROJECT_ID}"),
         ("list_project_tasks", f"/api/projects/{PROJECT_ID}/tasks"),
         ("list_project_documents", f"/api/projects/{PROJECT_ID}/documents"),

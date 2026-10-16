@@ -864,3 +864,26 @@ The following rules must not be violated without an explicit architectural decis
 12. **Security restrictions must be enforced in code architecture, not only in prompts.**
 
 When a requested implementation conflicts with one of these rules, stop that specific implementation path, preserve the safe architecture, and report the conflict clearly.
+
+## Intelligence 1B: Agent Core invariants
+
+- `AgentModel` separates orchestration from the official OpenAI SDK adapter. Keep
+  the model configurable; provider availability must not prevent health startup.
+- `GET /api/projects` is now allowed solely for the closed read-only project search.
+  Do not add arbitrary HTTP tools or broaden the transport to other methods.
+- Only the six explicitly registered tools are visible to the model. Validate all
+  tool arguments and the whole requested batch before execution; enforce bounded
+  rounds, calls, execution time and payload size. Never truncate silently.
+- Every chat is independent. Keep evidence, tool results and internal messages
+  request-local. Do not enable provider conversation storage or application memory.
+- Build project/task references from actual tool results in that run. The model
+  selects evidence keys; never accept model-supplied IDs, labels or URLs as authority.
+- Treat tool text as untrusted data. Ambiguous project candidates require clarification,
+  not an arbitrary project selection. Missing information does not mean zero.
+- Keep both Google credentials and provider credentials out of all model content,
+  tool payloads, validation errors, logs and user responses. Preserve boundary guards
+  and identity-field projection; never pass ToolBox/ReadTools/auth context to a model.
+- Provider errors are safe 502/503/504 errors, not Google-session 401 errors. Tool
+  failures abort generation; do not fabricate a factual answer after a failed read.
+- Keep tests offline using FakeModel and mocked SDK HTTP. A real provider smoke
+  requires temporary environment credentials and must never print or persist them.

@@ -20,6 +20,7 @@ from app.tools import ReadTools
     "method,path",
     [
         ("POST", "/api/management/overview"),
+        ("POST", "/api/projects"),
         ("PUT", f"/api/projects/{PROJECT_ID}"),
         ("PATCH", f"/api/projects/{PROJECT_ID}"),
         ("DELETE", f"/api/projects/{PROJECT_ID}/documents"),
@@ -114,12 +115,14 @@ def test_public_client_and_tool_surfaces_are_closed():
         "get_project_details",
         "get_project_documents",
         "get_project_activity",
+        "find_projects",
     }
     assert {name for name in dir(SnGControlClient) if not name.startswith("_")} == {
         "get_current_user",
         "get_management_overview",
         "list_management_tasks",
         "get_project",
+        "list_projects",
         "list_project_tasks",
         "list_project_documents",
         "list_project_notifications",

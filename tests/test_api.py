@@ -150,12 +150,13 @@ def test_correlation_is_uuid_and_propagated(settings, mock_backend, supplied, ca
     assert event["operation"] == "session"
 
 
-def test_only_two_get_routes_no_cors_or_proxy(settings, mock_backend):
+def test_only_explicit_routes_no_cors_or_proxy(settings, mock_backend):
     transport, calls = mock_backend
     app = create_app(settings, transport=transport)
     assert {(r.path, frozenset(r.methods)) for r in app.routes} == {
         ("/health", frozenset({"GET"})),
         ("/api/intelligence/session", frozenset({"GET"})),
+        ("/api/intelligence/chat", frozenset({"POST"})),
     }
     with TestClient(app) as api:
         for path in [

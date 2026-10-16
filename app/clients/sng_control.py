@@ -102,6 +102,9 @@ class SnGControlClient:
         identifier = validate_project_id(project_id)
         return await self._get(f"/api/projects/{identifier}", TypeAdapter(Project))
 
+    async def list_projects(self) -> list[Project]:
+        return await self._get("/api/projects", TypeAdapter(list[Project]))
+
     async def list_project_tasks(self, project_id: UUID | str) -> list[ProjectTask]:
         identifier = validate_project_id(project_id)
         return await self._get(f"/api/projects/{identifier}/tasks", TypeAdapter(list[ProjectTask]))

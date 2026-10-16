@@ -6,7 +6,8 @@ from app.clients.sng_control import SnGControlClient, validate_project_id
 from app.contracts.documents import ProjectDocuments
 from app.contracts.management import ManagementOverview, ManagementTask
 from app.contracts.notifications import ProjectNotification
-from app.contracts.projects import ProjectDetails
+from app.contracts.projects import ProjectCandidate, ProjectDetails
+from app.core.errors import InvalidArguments
 
 
 class ReadTools:
@@ -50,3 +51,29 @@ class ReadTools:
         identifier = validate_project_id(project_id)
         await require_management(self._client)
         return await self._client.list_project_notifications(identifier)
+
+    async def find_projects(self, query: str) -> list[ProjectCandidate]:
+        if not isinstance(query, str) or not query.strip() or len(query) > 200:
+            raise InvalidArguments()
+        terms = query.casefold().split()
+        await require_management(self._client)
+        projects = await self._client.list_projects()
+        tasks = await self._client.list_management_tasks()
+        # Client names are available only for projects present in management tasks.
+        clients = {task.project_id: task.client_name for task in tasks}
+        candidates = []
+        for project in projects:
+            name = clients.get(project.id)
+            fields = (project.name, project.sg_code or "", project.city, name or "")
+            searchable = " ".join(" ".join(field.casefold().split()) for field in fields)
+            if all(term in searchable for term in terms):
+                candidates.append(
+                    ProjectCandidate(
+                        project_id=project.id,
+                        project_name=project.name,
+                        client_name=name,
+                        sg_code=project.sg_code,
+                        city=project.city,
+                    )
+                )
+        return candidates

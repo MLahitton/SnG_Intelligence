@@ -1,6 +1,8 @@
 from datetime import datetime
 from uuid import UUID
 
+from pydantic import ConfigDict
+
 from app.contracts.base import BackendContract
 
 
@@ -40,3 +42,12 @@ class ProjectTask(BackendContract):
 class ProjectDetails(BackendContract):
     project: Project
     tasks: list[ProjectTask]
+
+
+class ProjectCandidate(BackendContract):
+    model_config = ConfigDict(populate_by_name=True)
+    project_id: UUID
+    project_name: str
+    client_name: str | None
+    sg_code: str | None
+    city: str

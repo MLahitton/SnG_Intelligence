@@ -49,6 +49,7 @@ class CorrelationMiddleware:
                         "duration_ms": round((perf_counter() - start) * 1000, 2),
                         "status": status,
                         "error_type": scope["state"].get("error_type"),
+                        **scope["state"].get("agent_metrics", {}),
                     }
                 )
             )

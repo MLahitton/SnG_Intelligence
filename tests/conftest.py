@@ -46,6 +46,7 @@ def payloads():
     }
     return {
         "/api/auth/me": copy.deepcopy(AUTH),
+        "/api/projects": [],
         "/api/management/overview": {
             "totalProjects": 19,
             "tasks": {"pending": 3, "inProgress": 5, "completed": 8},

@@ -12,6 +12,7 @@ dependencies = [
   "pydantic>=2.10,<3",
   "httpx>=0.28,<1",
   "truststore>=0.10.4,<1",
+  "openai>=2,<3",
   "uvicorn>=0.34,<1",
   "python-dotenv>=1,<2",
 ]
