@@ -1,6 +1,9 @@
 import asyncio
 import json
+from contextlib import asynccontextmanager
 
+import httpx
+import openai
 import pytest
 from conftest import PROJECT_ID, TOKEN
 from fastapi.testclient import TestClient
@@ -11,6 +14,7 @@ from app.api import voice as voice_api
 from app.api.dependencies import get_agent_model
 from app.api.voice import get_speaker, get_transcriber
 from app.main import create_app
+from app.voice import openai_audio
 from app.voice.config import MAX_AUDIO_BYTES, MAX_SPEECH_CHARACTERS, MAX_TRANSCRIPT_CHARACTERS
 from app.voice.errors import AudioInvalid
 
@@ -362,3 +366,76 @@ def test_openapi_voice_contracts_and_docs(settings, mock_backend):
     speech = schema["paths"][ENDPOINTS[2]]["post"]
     assert "application/json" in speech["requestBody"]["content"]
     assert set(speech["responses"]["200"]["content"]) == {"audio/mpeg"}
+
+
+@pytest.mark.parametrize("endpoint", ENDPOINTS[:2])
+@pytest.mark.parametrize("language", ["", " ", "es-CO", "spanish", "e1", TOKEN])
+def test_invalid_stt_language_is_safe_before_provider(
+    settings, mock_backend, monkeypatch, caplog, endpoint, language
+):
+    monkeypatch.setenv("SNG_INTELLIGENCE_TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe")
+    monkeypatch.setenv("SNG_INTELLIGENCE_TRANSCRIPTION_LANGUAGE", language)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Invalid language must fail before creating an SDK client")
+
+    monkeypatch.setattr(openai_audio, "openai_client", forbidden)
+    transport, _ = mock_backend
+    with TestClient(create_app(settings, transport=transport)) as api:
+        assert api.get("/health").status_code == 200
+        response = send(api, endpoint)
+    assert response.status_code == 503
+    assert response.json()["error"] == "provider_configuration_error"
+    assert set(response.json()) == {"error", "requestId"}
+    assert TOKEN not in response.text + caplog.text
+
+
+@pytest.mark.parametrize("endpoint", ENDPOINTS[:2])
+@pytest.mark.parametrize(
+    "transcript",
+    ["¿Qué proyectos tenemos activos en este momento?", "¿Cómo va Smoke Test Proyecto?"],
+)
+def test_spanish_sdk_transcript_preserved_through_http_and_agent(
+    settings, mock_backend, monkeypatch, caplog, endpoint, transcript
+):
+    monkeypatch.setenv("OPENAI_API_KEY", "fake-stt-provider-key")
+    monkeypatch.setenv("SNG_INTELLIGENCE_TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe")
+    monkeypatch.setenv("SNG_INTELLIGENCE_TRANSCRIPTION_LANGUAGE", "es")
+    calls = []
+
+    def provider(request):
+        assert request.url.path == "/v1/audio/transcriptions"
+        assert b'name="language"\r\n\r\nes\r\n' in request.content
+        assert TOKEN not in str(request.headers)
+        assert TOKEN.encode() not in request.content
+        assert b"fake-stt-provider-key" not in request.content
+        calls.append(request.url.path)
+        return httpx.Response(200, json={"text": transcript})
+
+    @asynccontextmanager
+    async def factory(key, timeout_seconds):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(provider)) as http,
+            openai.AsyncOpenAI(api_key=key.get_secret_value(), http_client=http) as sdk,
+        ):
+            yield sdk
+
+    monkeypatch.setattr(openai_audio, "openai_client", factory)
+    transport, _ = mock_backend
+    app = create_app(settings, transport=transport)
+    answer = "No dispongo de esa información."
+    model = FakeModel(final(answer))
+    app.dependency_overrides[get_agent_model] = lambda: model
+    with TestClient(app) as api:
+        response = send(api, endpoint)
+    assert response.status_code == 200
+    assert response.json()["transcript"] == transcript
+    if endpoint.endswith("/transcribe"):
+        assert response.json() == {"transcript": transcript}
+        assert not model.inputs
+    else:
+        assert model.inputs[0][0][0].content == transcript
+        assert response.json()["answer"] == answer
+    assert calls == ["/v1/audio/transcriptions"]
+    assert TOKEN not in response.text + caplog.text
+    assert transcript not in caplog.text

@@ -1,5 +1,6 @@
 import json
 import ssl
+from contextlib import asynccontextmanager
 
 import httpx
 import openai
@@ -17,7 +18,7 @@ from app.agent.errors import (
 )
 from app.clients.openai import openai_client
 from app.voice import openai_audio
-from app.voice.config import SPEECH_INSTRUCTIONS, VoiceSettings
+from app.voice.config import SPEECH_INSTRUCTIONS, TRANSCRIPTION_PROMPT_ES, VoiceSettings
 from app.voice.contracts import AudioInput
 from app.voice.errors import AudioInvalid, AudioTooLarge, InvalidAudioResponse, VoiceNotConfigured
 from app.voice.openai_audio import (
@@ -32,7 +33,7 @@ pytestmark = pytest.mark.anyio
 KEY = "fake-openai-audio-key"
 
 
-async def invoke(handler, stage="stt", *, model=None):
+async def invoke(handler, stage="stt", *, model=None, language="es"):
     async with (
         httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
         openai.AsyncOpenAI(
@@ -45,7 +46,7 @@ async def invoke(handler, stage="stt", *, model=None):
     ):
         if stage == "stt":
             return await OpenAITranscription(
-                sdk, model or "configured-transcription-model"
+                sdk, model or "configured-transcription-model", language=language
             ).transcribe(AudioInput(MP3, "mp3", "audio/mpeg"))
         return await OpenAISpeech(sdk, model or "configured-speech-model", "coral").synthesize(
             "Preparar cotización para Peña."
@@ -60,7 +61,7 @@ async def test_real_sdk_transcription_wire_format_no_credentials_or_translation(
         assert b'filename="audio.mp3"' in request.content
         assert b"configured-transcription-model" in request.content
         assert b"audio/mpeg" in request.content and MP3 in request.content
-        assert b'name="language"' not in request.content
+        assert b'name="language"\r\n\r\nes\r\n' in request.content
         assert b'name="prompt"' not in request.content
         assert b'name="stream"' not in request.content
         assert request.extensions["timeout"]["read"] == 60
@@ -69,6 +70,65 @@ async def test_real_sdk_transcription_wire_format_no_credentials_or_translation(
         )
 
     assert await invoke(provider) == "¿Cómo va Peña SG001?"
+
+
+@pytest.mark.parametrize(
+    "model,language,has_prompt",
+    [
+        ("gpt-4o-mini-transcribe", "es", True),
+        ("gpt-4o-mini-transcribe-2025-12-15", "es", True),
+        ("gpt-4o-transcribe", "es", True),
+        ("gpt-4o-mini-transcribe", "en", False),
+        ("gpt-4o-transcribe-diarize", "es", False),
+        ("configured-transcription-model", "es", False),
+    ],
+)
+async def test_transcription_language_and_supported_lexical_hint(model, language, has_prompt):
+    transcript = "¿Qué proyectos tenemos activos en este momento?"
+
+    def provider(request):
+        assert request.url.path == "/v1/audio/transcriptions"
+        assert f'name="language"\r\n\r\n{language}\r\n'.encode() in request.content
+        assert (b'name="prompt"' in request.content) is has_prompt
+        if has_prompt:
+            assert TRANSCRIPTION_PROMPT_ES.encode() in request.content
+        assert TOKEN not in str(request.headers)
+        assert TOKEN.encode() not in request.content and KEY.encode() not in request.content
+        return httpx.Response(200, json={"text": transcript})
+
+    assert await invoke(provider, model=model, language=language) == transcript
+
+
+@pytest.mark.parametrize("configured,expected", [(None, "es"), ("es", "es"), (" EN ", "en")])
+async def test_language_configuration_reaches_sdk(monkeypatch, configured, expected):
+    monkeypatch.setenv("OPENAI_API_KEY", KEY)
+    monkeypatch.setenv("SNG_INTELLIGENCE_TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe")
+    if configured is None:
+        monkeypatch.delenv("SNG_INTELLIGENCE_TRANSCRIPTION_LANGUAGE", raising=False)
+    else:
+        monkeypatch.setenv("SNG_INTELLIGENCE_TRANSCRIPTION_LANGUAGE", configured)
+    assert VoiceSettings.from_env().transcription_language == expected
+    calls = []
+
+    def provider(request):
+        assert f'name="language"\r\n\r\n{expected}\r\n'.encode() in request.content
+        calls.append(request.url.path)
+        return httpx.Response(200, json={"text": "¿Cómo va Smoke Test Proyecto?"})
+
+    @asynccontextmanager
+    async def factory(key, timeout_seconds):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(provider)) as http,
+            openai.AsyncOpenAI(api_key=key.get_secret_value(), http_client=http) as sdk,
+        ):
+            yield sdk
+
+    monkeypatch.setattr(openai_audio, "openai_client", factory)
+    async with configured_transcription() as stt:
+        assert await stt.transcribe(AudioInput(MP3, "mp3", "audio/mpeg")) == (
+            "¿Cómo va Smoke Test Proyecto?"
+        )
+    assert calls == ["/v1/audio/transcriptions"]
 
 
 @pytest.mark.parametrize(

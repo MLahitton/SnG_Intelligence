@@ -1,4 +1,5 @@
 import os
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -18,6 +19,7 @@ from app.voice.config import (
     BUILTIN_VOICES,
     MAX_SPEECH_BYTES,
     SPEECH_TIMEOUT_SECONDS,
+    TRANSCRIPTION_PROMPT_ES,
     TRANSCRIPTION_TIMEOUT_SECONDS,
     VoiceSettings,
 )
@@ -53,9 +55,10 @@ def _provider_error(exc: Exception, *, transcription: bool) -> IntelligenceError
 
 
 class OpenAITranscription:
-    def __init__(self, client: openai.AsyncOpenAI, model: str) -> None:
+    def __init__(self, client: openai.AsyncOpenAI, model: str, *, language: str) -> None:
         self._client = client
         self._model = model
+        self._language = language
 
     async def transcribe(self, audio: AudioInput) -> str:
         try:
@@ -63,7 +66,19 @@ class OpenAITranscription:
                 model=self._model,
                 file=(f"audio.{audio.extension}", audio.content, audio.content_type),
                 response_format="json",
-                # Preserve the spoken language; no translation endpoint or forced language.
+                language=self._language,
+                # Lexical context only, for models with documented prompt support.
+                prompt=(
+                    TRANSCRIPTION_PROMPT_ES
+                    if self._language == "es"
+                    and self._model
+                    in {
+                        "gpt-4o-mini-transcribe",
+                        "gpt-4o-mini-transcribe-2025-12-15",
+                        "gpt-4o-transcribe",
+                    }
+                    else openai.omit
+                ),
             )
             if not isinstance(response.text, str):
                 raise ValueError("Unexpected transcription")
@@ -134,8 +149,13 @@ async def configured_transcription() -> AsyncIterator[OpenAITranscription]:
     settings = VoiceSettings.from_env()
     if not settings.transcription_model:
         raise VoiceNotConfigured()
+    # Require an explicit ISO-639-1-shaped language; never silently autodetect.
+    if re.fullmatch(r"[a-z]{2}", settings.transcription_language) is None:
+        raise ProviderConfigurationError()
     async with openai_client(_provider_key(), TRANSCRIPTION_TIMEOUT_SECONDS) as client:
-        yield OpenAITranscription(client, settings.transcription_model)
+        yield OpenAITranscription(
+            client, settings.transcription_model, language=settings.transcription_language
+        )
 
 
 @asynccontextmanager

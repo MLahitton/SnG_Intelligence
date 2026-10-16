@@ -9,6 +9,11 @@ MAX_SPEECH_BYTES = 10 * 1024 * 1024
 UPLOAD_TIMEOUT_SECONDS = 30
 TRANSCRIPTION_TIMEOUT_SECONDS = 60
 SPEECH_TIMEOUT_SECONDS = 60
+TRANSCRIPTION_PROMPT_ES = (
+    "Transcribe fielmente en español, sin traducir, responder preguntas ni reescribir "
+    "su significado. Contexto léxico: Steel & Glass, proyectos, Presupuestos, "
+    "Comercial, Gerencia, cotización, SG."
+)
 SPEECH_INSTRUCTIONS = (
     "Pronuncia exactamente las palabras del texto proporcionado: no añadas, omitas ni "
     "cambies palabras, nombres propios, hechos o cifras. No interpretes hechos. "
@@ -45,6 +50,7 @@ class VoiceSettings:
     transcription_model: str
     speech_model: str
     voice: str
+    transcription_language: str = "es"
 
     @classmethod
     def from_env(cls) -> "VoiceSettings":
@@ -53,4 +59,7 @@ class VoiceSettings:
             transcription_model=os.environ.get("SNG_INTELLIGENCE_TRANSCRIPTION_MODEL", "").strip(),
             speech_model=os.environ.get("SNG_INTELLIGENCE_SPEECH_MODEL", "").strip(),
             voice=os.environ.get("SNG_INTELLIGENCE_VOICE", "").strip(),
+            transcription_language=os.environ.get("SNG_INTELLIGENCE_TRANSCRIPTION_LANGUAGE", "es")
+            .strip()
+            .lower(),
         )

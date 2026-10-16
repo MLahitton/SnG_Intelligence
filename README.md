@@ -80,6 +80,7 @@ la pila HTTP. Ruff y mypy verifican formato, lint y tipos.
 | `OPENAI_API_KEY` | Credencial del proveedor, requerida para chat y voz. No se valida por red en startup. |
 | `SNG_INTELLIGENCE_MODEL` | Modelo obligatorio para chat, sin valor predeterminado. Debe soportar function calling y salida JSON Schema estricta en Responses API. |
 | `SNG_INTELLIGENCE_TRANSCRIPTION_MODEL` | Requerido para `/voice/transcribe` y `/voice`; sin valor predeterminado. |
+| `SNG_INTELLIGENCE_TRANSCRIPTION_LANGUAGE` | Idioma del audio para STT; predeterminado `es`. Código de dos letras ISO-639-1, por ejemplo `es` o `en`; vacío/formato inválido produce un error seguro 503 al solicitar STT. |
 | `SNG_INTELLIGENCE_SPEECH_MODEL` | Requerido solo para `/voice/speech`; sin valor predeterminado. |
 | `SNG_INTELLIGENCE_VOICE` | Voz integrada requerida solo para `/voice/speech`; sin valor predeterminado. No acepta voces personalizadas. |
 
@@ -426,6 +427,14 @@ Texto ---------------------> Agent.run -> respuesta semántica + evidencia
 
 `SpeechToText` y `TextToSpeech` son protocolos pequeños. `OpenAITranscription` usa
 `audio.transcriptions.create`; `OpenAISpeech` usa `audio.speech` del SDK oficial.
+STT envía `language` desde configuración, con español (`es`) como valor predeterminado;
+la autodetección no es el comportamiento principal. Se usa transcripción, nunca traducción,
+y el texto devuelto se conserva sin reescribirlo antes de pasarlo al Agent Core.
+Para español y los modelos `gpt-4o-mini-transcribe`, su versión `2025-12-15` y
+`gpt-4o-transcribe`, se añade un hint léxico centralizado sobre Steel & Glass,
+proyectos, Presupuestos, Comercial, Gerencia, cotización y SG. No autoriza responder
+preguntas ni cambiar el significado. Otros modelos o idiomas omiten ese hint.
+El idioma es configuración del servidor; los contratos HTTP y el frontend no cambian.
 No forman parte de `OpenAIModel`. La factoría de cliente SDK comparte TLS nativo,
 origen oficial fijo, timeout finito, ausencia de redirects/proxies y cero retries.
 `/chat` y `/voice` obtienen el mismo `Agent` mediante `get_agent` y llaman a `run`;
@@ -496,8 +505,9 @@ No se envían headers de usuario ni contexto de autenticación a los modelos.
 El guard rechaza credenciales actuales presentes literalmente en texto o bytes;
 no es un detector semántico de secretos pronunciados dentro de una grabación.
 
-STT conserva el idioma mediante transcripción, sin usar translations ni fijar
-`language=es`, para permitir otros idiomas. TTS recibe únicamente `text` y una
+STT usa transcripción, sin translations, y envía el idioma configurado mediante
+`SNG_INTELLIGENCE_TRANSCRIPTION_LANGUAGE` (`es` por defecto). Para otro idioma,
+se cambia esa variable en el servidor. TTS recibe únicamente `text` y una
 instrucción base centralizada en `voice/config.py` y variantes en `voice/style.py`:
 español colombiano natural, cálido y cercano, profesional y conversacional, con
 pausas naturales, pequeñas variaciones de ritmo, entonación orgánica, énfasis sutil
@@ -515,6 +525,7 @@ Ejemplos de configuración de desarrollo, sujetos al acceso del proyecto OpenAI:
 
 ```dotenv
 SNG_INTELLIGENCE_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
+SNG_INTELLIGENCE_TRANSCRIPTION_LANGUAGE=es
 SNG_INTELLIGENCE_SPEECH_MODEL=gpt-4o-mini-tts
 SNG_INTELLIGENCE_VOICE=marin
 ```
