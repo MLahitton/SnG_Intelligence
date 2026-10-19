@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import JsonValue, ValidationError
 
 from app.agent.contracts import (
+    ComparisonArguments,
     NoArguments,
     ProjectArguments,
     ProjectReference,
@@ -21,6 +22,20 @@ from app.agent.security import CredentialGuard
 from app.tools import ReadTools
 
 TOOL_DEFINITIONS = (
+    ToolDefinition(
+        "get_management_snapshot",
+        "Executive brief, attention and area workload: "
+        "parallel official overview and compact tasks. "
+        "Slices report total/returned/hasMore; attention preserves backend order.",
+        NoArguments,
+    ),
+    ToolDefinition(
+        "compare_projects",
+        "Compare 2-4 distinct projects resolved in this run, in requested order. "
+        "Fetch current details in parallel. Set include_documents/include_activity true only "
+        "when the user requests those facts; otherwise false. No document bytes.",
+        ComparisonArguments,
+    ),
     ToolDefinition(
         "get_management_overview", "Official project, task and Leak Time counts.", NoArguments
     ),
@@ -102,6 +117,11 @@ class ToolBox:
             arguments = definition.arguments.model_validate_json(call.arguments)
             if isinstance(arguments, SearchArguments) and not arguments.query.strip():
                 raise ValueError("Blank search")
+            if isinstance(arguments, ComparisonArguments) and any(
+                identifier in self._ambiguous or f"project:{identifier}" not in self._references
+                for identifier in arguments.project_ids
+            ):
+                raise InvalidToolCall()
             return arguments
         except (ValidationError, ValueError):
             pass
@@ -111,7 +131,55 @@ class ToolBox:
         arguments = self.validate(call)
         refs: list[Reference] = []
         data: JsonValue
-        if call.name == "get_management_overview":
+        complete = True
+        if call.name == "get_management_snapshot":
+            snapshot = await self._tools.get_management_snapshot()
+            self.presentation.snapshot(snapshot)
+            data = snapshot.model_dump(mode="json", by_alias=True)
+            complete = not (
+                snapshot.attention_coverage.has_more or snapshot.tasks_coverage.has_more
+            )
+            for item in [*snapshot.tasks, *snapshot.overview.attention.items]:
+                refs.extend(
+                    [
+                        ProjectReference(
+                            project_id=item.project_id,
+                            label=item.project_name,
+                            sg_code=item.sg_code,
+                        ),
+                        TaskReference(
+                            project_id=item.project_id, task_id=item.task_id, label=item.task_type
+                        ),
+                    ]
+                )
+        elif call.name == "compare_projects" and isinstance(arguments, ComparisonArguments):
+            results = await self._tools.compare_projects(
+                arguments.project_ids,
+                include_documents=arguments.include_documents,
+                include_activity=arguments.include_activity,
+            )
+            if [result.details.project.id for result in results] != arguments.project_ids:
+                raise UngroundedReference()
+            if any(
+                item.project_id != result.details.project.id
+                for result in results
+                for item in result.activity or []
+            ):
+                raise UngroundedReference()
+            self.presentation.comparison(results)
+            data = [result.model_dump(mode="json", by_alias=True) for result in results]
+            for compared in results:
+                project = compared.details.project
+                refs.append(
+                    ProjectReference(
+                        project_id=project.id, label=project.name, sg_code=project.sg_code
+                    )
+                )
+                refs.extend(
+                    TaskReference(project_id=task.project_id, task_id=task.id, label=task.type)
+                    for task in compared.details.tasks
+                )
+        elif call.name == "get_management_overview":
             overview = await self._tools.get_management_overview()
             self.presentation.overview(overview)
             data = overview.model_dump(mode="json", by_alias=True)
@@ -191,7 +259,7 @@ class ToolBox:
             self._add(reference)
         envelope = {
             "data": _project_data(data),
-            "complete": True,
+            "complete": complete,
             "available_references": {
                 key: ref.model_dump(mode="json", by_alias=True)
                 for key, ref in self._references.items()

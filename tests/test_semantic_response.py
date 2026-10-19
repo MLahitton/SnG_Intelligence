@@ -426,7 +426,7 @@ def test_prompt_natural_naming_recommendations_and_no_false_memory():
         "SG es metadata secundaria",
         "como coletilla",
         "Recomendaría",
-        "no garantiza contexto",
+        "Conversation 3A conserva referencias ordenadas",
         "spokenAnswer DEBE copiar answer exactamente",
     ):
         assert policy in SYSTEM_PROMPT

@@ -105,7 +105,7 @@ class OpenAIModel:
                 model=self._model,
                 instructions=SYSTEM_PROMPT
                 + (
-                    "\nFor spoken interaction, answer essentials in 1-3 sentences normally. "
+                    "\nFor spoken interaction, answer essentials in 2-4 sentences normally. "
                     "Keep necessary facts and clarification; do not recite presentation metadata."
                     if self._concise
                     else ""

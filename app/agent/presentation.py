@@ -2,12 +2,15 @@
 
 from app.agent.errors import UngroundedReference
 from app.agent.prompt import MANAGEMENT_LABELS_ES
+from app.contracts.analysis import ComparedProject, ManagementSnapshot
 from app.contracts.management import AttentionItem, ManagementOverview, ManagementTask
 from app.contracts.presentation import (
     AreaItem,
     BriefPresentation,
     ClarificationPresentation,
+    ComparedProjectItem,
     ComparisonPresentation,
+    Coverage,
     DirectPresentation,
     ListPresentation,
     Metric,
@@ -29,6 +32,11 @@ class PresentationEvidence:
         self.names: set[str] = set()
         self._details: dict[str, list[TaskItem]] = {}
         self._candidate_groups: list[set[str]] = []
+        self._comparisons: list[list[str]] = []
+        self._compared: dict[str, ComparedProjectItem] = {}
+        self._attention_order: list[str] = []
+        self._attention_coverage: Coverage | None = None
+        self._tasks_coverage: Coverage | None = None
 
     def project(self, item: ProjectItem) -> None:
         self.items[f"project:{item.project_id}"] = item
@@ -66,6 +74,7 @@ class PresentationEvidence:
         self.task(task, project)
 
     def overview(self, overview: ManagementOverview) -> None:
+        self._attention_order = [f"task:{task.task_id}" for task in overview.attention.items]
         counts = {
             "total_projects": ("Proyectos", overview.total_projects),
             "tasks.pending": ("Tareas pendientes", overview.tasks.pending),
@@ -101,6 +110,54 @@ class PresentationEvidence:
             )
         for task in overview.attention.items:
             self.management_task(task)
+
+    def snapshot(self, snapshot: ManagementSnapshot) -> None:
+        for task in snapshot.tasks:
+            self.management_task(task)
+        # Prefer official attention projection if an item also appears in tasks.
+        self.overview(snapshot.overview)
+        self._attention_coverage = snapshot.attention_coverage
+        self._tasks_coverage = snapshot.tasks_coverage
+
+    def comparison(self, results: list[ComparedProject]) -> None:
+        group = []
+        for result in results:
+            self.details(result.details)
+            key = f"project:{result.details.project.id}"
+            project = self.items[key]
+            assert isinstance(project, ProjectItem)
+            tasks = result.details.tasks
+            counts = {"tasks.total": ("Tareas actuales", len(tasks))}
+            for status in ("Pending", "InProgress", "Completed"):
+                counts[f"tasks.{status}"] = (
+                    MANAGEMENT_LABELS_ES[status],
+                    sum(task.status == status for task in tasks),
+                )
+            for status in ("Overdue", "DueToday", "DueSoon", "NotStarted", "OnTrack"):
+                counts[f"deadlines.{status}"] = (
+                    MANAGEMENT_LABELS_ES[status],
+                    sum(task.leak_time_status == status for task in tasks),
+                )
+            if result.documents is not None:
+                counts["documents.returned"] = (
+                    "Documentos devueltos",
+                    len(result.documents.documents),
+                )
+                counts["documents.current"] = (
+                    "Documentos vigentes devueltos",
+                    sum(document.is_current for document in result.documents.documents),
+                )
+            if result.activity is not None:
+                counts["activity.returned"] = ("Avisos devueltos", len(result.activity))
+            self._compared[key] = ComparedProjectItem(
+                project=project,
+                metrics=[
+                    Metric(key=k, label=label, value=value) for k, (label, value) in counts.items()
+                ],
+                tasks=self._details[key],
+            )
+            group.append(key)
+        self._comparisons.append(group)
 
     def candidates(self, candidates: list[ProjectCandidate]) -> None:
         group = set()
@@ -145,12 +202,27 @@ class PresentationEvidence:
                 return DirectPresentation(metric=metrics[0] if metrics else None)
             case "unavailable" if not items:
                 return UnavailablePresentation()
-            case "management_brief" if len(items) == len(metrics) + len(entities):
-                return BriefPresentation(metrics=metrics, items=entities)
+            case "management_brief" if len(items) == len(metrics) + len(entities) + len(areas):
+                attention = [self.items[key] for key in self._attention_order if key in keys]
+                ordered = [item for item in attention if isinstance(item, TaskItem)]
+                return BriefPresentation(
+                    metrics=metrics,
+                    items=[*ordered, *(item for item in entities if item not in ordered)],
+                    areas=areas,
+                    attention_coverage=self._attention_coverage,
+                    tasks_coverage=self._tasks_coverage,
+                )
             case "list" if len(items) == len(entities):
                 return ListPresentation(items=entities)
             case "comparison" if items and len(items) == len(areas):
                 return ComparisonPresentation(areas=areas)
+            case "comparison" if len(items) == len(projects) and 2 <= len(projects) <= 4:
+                group = next((g for g in reversed(self._comparisons) if set(g) == set(keys)), None)
+                if group is None or any(
+                    key in candidates for key in group for candidates in self._candidate_groups
+                ):
+                    raise UngroundedReference()
+                return ComparisonPresentation(projects=[self._compared[key] for key in group])
             case "clarification" if len(items) == len(projects):
                 if items and set(keys) not in self._candidate_groups:
                     raise UngroundedReference()

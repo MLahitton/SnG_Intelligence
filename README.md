@@ -298,7 +298,7 @@ su contenido cifrado cuando está presente. No se usa Conversations ni
 contexto efímero, sin persistencia durable ni replay de tools/razonamiento anteriores.
 
 El modelo recibe la pregunta, contexto conversacional acotado si existe, los schemas
-y resultados proyectados de las seis
+y resultados proyectados de las ocho
 tools registradas. Nunca recibe ReadTools, el cliente backend, requests, headers,
 variables de entorno o contexto de autenticación. Se omiten identidades Google,
 emails de autores/asignados y flags de modificación de los resultados. Un guard
@@ -339,10 +339,10 @@ por `kind`; sus objetos rechazan campos adicionales y el tipo debe coincidir con
 | responseType | Uso | Campos de presentation además de kind |
 |---|---|---|
 | `direct` | Pregunta simple/conteo | `metric: Metric \| null` |
-| `management_brief` | Resumen, prioridades y riesgos | `metrics: Metric[]`, `items: (ProjectItem \| TaskItem)[]` |
+| `management_brief` | Resumen y prioridades | `metrics`, `items`, `areas`, `attentionCoverage`, `tasksCoverage` |
 | `project_status` | Estado de un proyecto resuelto | `project: ProjectItem`, `tasks: TaskItem[]` |
 | `list` | Enumeración de elementos | `items: (ProjectItem \| TaskItem)[]` |
-| `comparison` | Comparación de carga por área | `areas: AreaItem[]` |
+| `comparison` | Áreas o 2–4 proyectos actuales | `areas: AreaItem[]`, `projects: ComparedProjectItem[]` (sin mezclar) |
 | `clarification` | Ambigüedad/identificación insuficiente | `candidates: ProjectItem[]` |
 | `unavailable` | Dato no disponible | `reason: "data_not_available"` |
 
@@ -705,7 +705,7 @@ Browser <-- WebRTC audio + captions/UI --> GPT-Live
 
 El servidor es el único ejecutor de `consult_sng_intelligence`. Responses delegation
 recibe contexto de Live y produce preguntas autocontenidas para el Agent con evidencia nueva y contexto opcional.
-Las seis tools read-only, grounding, referencias y Presentation no se duplican ni
+Las ocho tools read-only, grounding, referencias y Presentation no se duplican ni
 se exponen directamente a Live. El browser no interpreta llamadas, no consulta
 `/live/delegate` y no envía tool outputs ni `response.create`. Ese endpoint fue eliminado.
 
@@ -933,3 +933,120 @@ la validación real y no sustituyen la evaluación del proveedor.
 Es memoria de una sola instancia: **reiniciar el servidor pierde conversaciones**. Despliegue
 3A usa un proceso/worker; no se comparte estado entre workers/réplicas. No hay DB/Redis,
 archivos, almacenamiento del navegador, RAG, LangGraph ni aprendizaje de preferencias.
+
+
+## Management Intelligence 4A — análisis ejecutivo
+
+Implementado sobre el mismo Agent Core de texto/Live y Conversation 3A. Backend sigue
+siendo la única autoridad operacional. No cambian HTTP routes, WebRTC, sideband,
+autenticación, credenciales, `store=false`, TLS ni STT/TTS. No hay estado empresarial nuevo.
+
+### Snapshot gerencial
+
+`get_management_snapshot()` añade una tool cerrada al catálogo (ocho tools en total;
+se conservan las seis anteriores). Autoriza primero y obtiene overview y management tasks
+concurrentemente. Cancela y espera todas las lecturas pendientes ante fallo/cancelación.
+El contrato contiene:
+
+- `overview`: totales, counts de tareas/plazos y áreas oficiales; attention mantiene el
+  orden del Backend, con hasta 8 items.
+- `attentionCoverage`: `{total, returned, hasMore}` usando el total oficial de attention.
+- `tasks`: hasta 12 tareas con campos operativos compactos, sin identidad de usuario ni
+  permisos. Fuera de attention, selección estable por estado oficial: Overdue, DueToday,
+  DueSoon, Pending/InProgress, otros. Nunca compara el reloj para decidir estados.
+- `tasksCoverage`: `{total, returned, hasMore}` sobre la lista de tareas recuperada.
+- Catálogos run-local de referencias/presentation. `complete=false` si cualquier slice
+  tiene más elementos. Totales y áreas no se calculan a partir de una muestra.
+
+Los límites son explícitos; `list_management_tasks` mantiene el camino de listado completo.
+Siguen vigentes 48 000 bytes por resultado y 128 000 por transcript interno: un exceso falla
+seguro, nunca se elimina información silenciosamente. El snapshot es una lectura actual de
+endpoints independientes, no una transacción atómica ni un snapshot histórico persistido.
+
+### Brief, atención y áreas
+
+El prompt prioriza situación general, atención inmediata, carga por áreas, próximos
+vencimientos y una recomendación breve identificada como tal. El builder preserva el orden
+Backend de los items de atención seleccionados, aunque el modelo los pida en otro orden.
+`management_brief` admite `areas`, `attentionCoverage` y `tasksCoverage` además de metrics/items;
+el Frontend muestra cobertura parcial sin confundir datos recuperados con elementos visibles.
+
+Los counts por área sustentan concentración de trabajo, no saturación del personal,
+productividad ni capacidad. Un posible cuello de botella debe expresarse como hipótesis
+sustentada; sin evidencia suficiente, se indica esa limitación. No se generan risk scores,
+semáforos, progreso porcentual ni pronósticos. Pendiente sin fecha no equivale a atrasado.
+
+### Comparación actual de proyectos
+
+`compare_projects(project_ids, include_documents, include_activity)` requiere 2–4 UUID
+distintos presentes en evidencia de ese run, sin ambigüedad pendiente. Ambos booleanos
+son obligatorios en el schema estricto; el prompt indica false salvo petición explícita.
+Normalmente se resuelven nombres/SG con `find_projects`, luego se comparan los proyectos.
+La validación de todo el batch rechaza IDs inventados antes de hacer lecturas.
+
+Los detalles/tareas de todos los proyectos se consultan en paralelo. Documentos y avisos
+solo se consultan cuando se solicitan, también en paralelo; nunca se descargan bytes.
+La estructura interna conserva detalles y metadata oficial. Presentation añade:
+
+```text
+ComparedProjectItem = {project: ProjectItem, metrics: Metric[], tasks: TaskItem[]}
+comparison = {kind: "comparison", areas: [], projects: ComparedProjectItem[2..4]}
+```
+
+El servidor cuenta tareas por status/leakTimeStatus oficiales, sin recalcular ninguno.
+Solo añade counts de documentos/avisos si se leyeron (documentos devueltos/vigentes devueltos,
+no una afirmación sobre contenido ni historia completa). Labels, IDs y fechas salen de evidencia.
+El modelo selecciona todas las claves project: del conjunto; no suministra métricas propias.
+La respuesta garantiza referencias de todos los proyectos en el orden comparado, aunque
+el modelo omita/reordene reference_keys. Las fechas originales se preservan; la prosa usa
+America/Bogota. Si faltan deadlines, cualquier comparación de fechas se limita a las conocidas.
+
+El Frontend usa cards con links seguros y métricas semánticas, tareas desplegables,
+columnas cuando caben y cards apiladas en móvil; omite campos opcionales ausentes.
+No introduce otra página ni deduce tarjetas a partir de captions Live.
+
+### Continuidad, voz y límites analíticos
+
+Conversation 3A conserva referencias ordenadas para «el segundo», «de esos dos» y seguimientos
+texto → Live → texto. Cada run vuelve a leer datos actuales; el historial no autoriza IDs
+como evidencia nueva ni conserva metrics como verdad. Basic voice sigue independiente.
+Live normalmente responde en 2–4 frases, sin recitar tablas. `spokenAnswer` usa el mismo
+contenido que `answer`, con rendering determinista; no añade hechos.
+
+Facturación, margen, presupuesto vendido y cambios desde ayer siguen sin estar disponibles.
+El prompt exige `unavailable`: conversación previa no es una serie temporal comparable.
+Las garantías de contratos/IDs/metadata son deterministas; la exactitud de toda la prosa y
+la calidad de recomendaciones siguen requiriendo evaluación del proveedor real.
+
+### Rendimiento y evaluación offline
+
+Se registran `management_snapshot_ms` y `comparison_fetch_ms`, además de `agent_model_ms`,
+`backend_tools_ms`, `agent_total_ms`, llamadas y rondas. HTTP usa un scope numérico propio;
+Live conserva su scope existente. No se registran nombres, preguntas, respuestas ni IDs.
+
+`tests/test_management_analysis.py` contiene evals offline A–H: brief, atención, áreas,
+comparación, pendientes, fecha más próxima cross-modal, cuello de botella insuficiente y
+facturación no disponible. Incluye límites, ambigüedad, cancelación, aislamiento y evidencia.
+Con un FakeModel guionado, brief usa 1 ronda de tool / 2 llamadas al modelo; comparación
+usa resolución + fetch (2 rondas / 3 llamadas al modelo si las búsquedas vienen juntas).
+No es una medición de latencia real ni garantía de selección/rondas del proveedor. El adaptador
+conserva `parallel_tool_calls=false`; los fetches internos sí son concurrentes.
+
+### Smoke real pendiente (manual, proveedor pagado)
+
+En una misma conversación, con Gerencia autenticada y Backend actual:
+
+1. «Dame un resumen ejecutivo.» — snapshot, métricas oficiales, cobertura y recomendación.
+2. «¿Qué debería preocuparme hoy?» — attention en orden Backend, sin score inventado.
+3. «¿Dónde tenemos más carga?» — counts por área, sin atribuir saturación humana.
+4. «Compara Casa Ximena con Smoke Test Proyecto.» — resolver nombres reales; aclarar si hay
+   ambigüedad/no existen; comparar 2 proyectos y revisar cards/referencias.
+5. «¿Cuál de los dos tiene más pendientes?» — conservar referentes, volver a consultar.
+6. Por Live: «¿Y cuál vence primero?» — mismos referentes, fechas actuales conocidas,
+   Colombia, respuesta oral breve; no inferir vencimiento si no hay fecha.
+7. «¿Tenemos un cuello de botella?» — separar evidencia de hipótesis o insuficiencia.
+8. «¿Cuánto facturamos este mes?» — unavailable, ninguna cifra inventada.
+
+Comprobar también cards en móvil y «Amplía el segundo proyecto» al volver a texto.
+No guardar credenciales, audio, SDP, transcripciones ni resultados empresariales del smoke.
+Esta batería no se ejecuta automáticamente desde pytest.

@@ -883,7 +883,7 @@ When a requested implementation conflicts with one of these rules, stop that spe
   the model configurable; provider availability must not prevent health startup.
 - `GET /api/projects` is now allowed solely for the closed read-only project search.
   Do not add arbitrary HTTP tools or broaden the transport to other methods.
-- Only the six explicitly registered tools are visible to the model. Validate all
+- Only the eight explicitly registered tools (including Management 4A composites) are visible to the model. Validate all
   tool arguments and the whole requested batch before execution; enforce bounded
   rounds, calls, execution time and payload size. Never truncate silently.
 - Chats without conversationId are independent. Conversation 3A explicitly permits
@@ -947,7 +947,7 @@ small adapters; model/voice configuration is server-owned and never supplied by 
    Browser audio goes directly to GPT-Live over WebRTC. No PCM relay in this service.
 2. Live uses Responses delegation with exactly one strict function,
    `consult_sng_intelligence(question)`. It calls the existing Agent Core with run-local evidence.
-   Never expose its six business tools directly to Live or add arbitrary dispatch.
+   Never expose its business tools directly to Live or add arbitrary dispatch.
 3. Delegation resolves conversational references into a self-contained question.
    Live context lives at the provider; Conversation 3A also permits shared ephemeral semantic
    turns in its separate store. No business-state cache. Basic fallback remains stateless.
@@ -1032,3 +1032,25 @@ small adapters; model/voice configuration is server-owned and never supplied by 
    Full reload/server restart loses continuity. Basic /voice remains stateless in this phase.
 9. Telemetry may contain counts, durations and categories, never conversational content,
    referent IDs, labels or credentials. Automated tests/evals remain offline and scripted.
+
+
+## Management Intelligence 4A invariants
+
+1. Eight closed read-only tools include get_management_snapshot and compare_projects.
+   No new backend writes/routes, RAG, risk scores or workflow states.
+2. Snapshot reads overview/tasks concurrently with sibling cancellation/cleanup. Official
+   counts remain intact; attention order belongs to Backend. Bound attention/tasks to 8/12
+   with total/returned/hasMore. Never present sampled counts as complete totals.
+3. Compare 2–4 distinct project IDs from fresh run-local verified evidence; reject ambiguous
+   candidates or invented IDs before dispatch. Fetch details concurrently; documents/activity
+   only on explicit request, metadata only. Preserve compared order in public references.
+4. Server builds all presentation metrics, labels, dates and IDs from evidence. Counts may
+   group official statuses; never infer overdue from a deadline or invent missing meanings.
+5. History resolves names/ordinals only. Fresh reads on every current claim. No historical
+   change analysis from past conversation text. Billing/margin/sold budget remain unavailable.
+6. Separate facts from recommendations; counts show concentration, not human capacity or
+   productivity. Bottleneck is a supported cautious hypothesis, never an invented fact.
+7. Keep Voice transport/sideband/credential lifecycle untouched. Same Agent for text/Live,
+   normally 2–4 spoken sentences; no independently generated extra spoken facts.
+8. Numeric snapshot/comparison timings only. Offline evals are scripted protocol tests,
+   not proof of real provider quality, latency or paid-smoke approval.

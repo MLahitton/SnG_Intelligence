@@ -74,10 +74,19 @@ class DirectPresentation(PresentationModel):
     metric: Metric | None
 
 
+class Coverage(PresentationModel):
+    total: int = Field(ge=0)
+    returned: int = Field(ge=0)
+    has_more: bool
+
+
 class BriefPresentation(PresentationModel):
     kind: Literal["management_brief"] = "management_brief"
     metrics: list[Metric]
     items: list[EntityItem]
+    areas: list[AreaItem] = Field(default_factory=list)
+    attention_coverage: Coverage | None = None
+    tasks_coverage: Coverage | None = None
 
 
 class ProjectPresentation(PresentationModel):
@@ -91,9 +100,16 @@ class ListPresentation(PresentationModel):
     items: list[EntityItem]
 
 
+class ComparedProjectItem(PresentationModel):
+    project: ProjectItem
+    metrics: list[Metric]
+    tasks: list[TaskItem]
+
+
 class ComparisonPresentation(PresentationModel):
     kind: Literal["comparison"] = "comparison"
-    areas: list[AreaItem]
+    areas: list[AreaItem] = Field(default_factory=list)
+    projects: list[ComparedProjectItem] = Field(default_factory=list, max_length=4)
 
 
 class ClarificationPresentation(PresentationModel):

@@ -110,6 +110,8 @@ def test_dependency_clears_credentials_and_lifespan_closes_pool(
 
 def test_public_client_and_tool_surfaces_are_closed():
     assert {name for name in dir(ReadTools) if not name.startswith("_")} == {
+        "get_management_snapshot",
+        "compare_projects",
         "get_management_overview",
         "list_management_tasks",
         "get_project_details",

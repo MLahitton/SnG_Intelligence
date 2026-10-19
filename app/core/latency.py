@@ -2,7 +2,7 @@
 
 import json
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterator, MutableMapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -16,6 +16,8 @@ Metric = Literal[
     "agent_total_ms",
     "agent_model_ms",
     "backend_tools_ms",
+    "management_snapshot_ms",
+    "comparison_fetch_ms",
     "agent_model_calls",
     "agent_tool_rounds",
     "tool_calls",
@@ -55,6 +57,24 @@ def latency_scope(metrics: LatencyMetrics) -> Iterator[None]:
         yield
     finally:
         _current.reset(token)
+
+
+@contextmanager
+def agent_latency(destination: MutableMapping[str, object]) -> Iterator[None]:
+    """Instrument HTTP runs too, preserving an existing Live/benchmark scope."""
+    metrics = _current.get()
+    if metrics is not None:
+        try:
+            yield
+        finally:
+            destination.update(metrics.snapshot())
+    else:
+        metrics = LatencyMetrics()
+        with latency_scope(metrics):
+            try:
+                yield
+            finally:
+                destination.update(metrics.snapshot())
 
 
 def count(name: Metric, amount: float = 1) -> None:

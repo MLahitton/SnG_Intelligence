@@ -7,9 +7,9 @@ from app.agent.errors import AgentLimitExceeded, InvalidModelResponse, InvalidTo
 from app.agent.rendering import render_answer
 from app.agent.security import CredentialGuard
 from app.agent.toolbox import TOOL_DEFINITIONS, ToolBox
-from app.contracts.presentation import ProjectPresentation
+from app.contracts.presentation import ComparisonPresentation, ProjectPresentation
 from app.conversation.context import ConversationContext, check_context_text
-from app.core.latency import count, measure
+from app.core.latency import agent_latency, count, measure
 
 MAX_TOOL_ROUNDS = 6
 MAX_TOOL_CALLS = 8
@@ -33,7 +33,7 @@ class Agent:
     async def run(self, message: str, context: ConversationContext | None = None) -> ChatResponse:
         try:
             async with asyncio.timeout(MAX_EXECUTION_SECONDS):
-                with measure("agent_total_ms"):
+                with agent_latency(self._metrics), measure("agent_total_ms"):
                     return await self._run(message, context)
         except TimeoutError:
             pass
@@ -88,11 +88,18 @@ class Agent:
                     if not content.startswith(name):
                         content = f"{name}: {content}"
                 answer, spoken = render_answer(content, self._tools.presentation.names)
+                reference_keys = turn.answer.reference_keys
+                if isinstance(presentation, ComparisonPresentation) and presentation.projects:
+                    # Preserve the complete compared order for cross-modal ordinals,
+                    # even if the model selects references in a different order or omits one.
+                    reference_keys = [
+                        f"project:{item.project.project_id}" for item in presentation.projects
+                    ] + reference_keys
                 response = ChatResponse(
                     response_type=turn.answer.response_type,
                     answer=answer,
                     spoken_answer=spoken,
-                    references=self._tools.references(turn.answer.reference_keys),
+                    references=self._tools.references(reference_keys),
                     presentation=presentation,
                 )
                 self._guard.check(response.model_dump_json())

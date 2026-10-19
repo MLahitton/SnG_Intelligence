@@ -6,9 +6,11 @@ from uuid import UUID
 
 from app.auth.management_guard import require_management
 from app.clients.sng_control import SnGControlClient, validate_project_id
+from app.contracts.analysis import ComparedProject, ManagementSnapshot
 from app.contracts.documents import ProjectDocuments
-from app.contracts.management import ManagementOverview, ManagementTask
+from app.contracts.management import AttentionItem, ManagementOverview, ManagementTask
 from app.contracts.notifications import ProjectNotification
+from app.contracts.presentation import Coverage
 from app.contracts.projects import ProjectCandidate, ProjectDetails
 from app.core.errors import InvalidArguments, ManagementRequired
 from app.core.latency import measure
@@ -66,6 +68,9 @@ class ReadTools:
     async def get_project_details(self, project_id: UUID | str) -> ProjectDetails:
         identifier = validate_project_id(project_id)
         await self._authorize()
+        return await self._project_details(identifier)
+
+    async def _project_details(self, identifier: UUID) -> ProjectDetails:
         # Cancel and await the sibling on failure; nothing outlives the request scope.
         project = asyncio.create_task(self._client.get_project(identifier))
         tasks = asyncio.create_task(self._client.list_project_tasks(identifier))
@@ -77,6 +82,111 @@ class ReadTools:
                 if not pending.done():
                     pending.cancel()
             await asyncio.gather(project, tasks, return_exceptions=True)
+
+    async def get_management_snapshot(self) -> ManagementSnapshot:
+        await self._authorize()
+        with measure("management_snapshot_ms"):
+            overview_read = asyncio.create_task(self._client.get_management_overview())
+            tasks_read = asyncio.create_task(self._client.list_management_tasks())
+            try:
+                overview, tasks = await asyncio.gather(overview_read, tasks_read)
+            finally:
+                for pending in (overview_read, tasks_read):
+                    if not pending.done():
+                        pending.cancel()
+                await asyncio.gather(overview_read, tasks_read, return_exceptions=True)
+            # Backend attention order is authoritative. Only the separate task slice
+            # is ranked by explicit official fields, stably within each priority.
+            attention = overview.attention.items[:8]
+            priority = {"Overdue": 0, "DueToday": 1, "DueSoon": 2}
+            ordered = sorted(
+                tasks,
+                key=lambda task: priority.get(
+                    task.leak_time_status, 3 if task.status in {"Pending", "InProgress"} else 4
+                ),
+            )[:12]
+            compact = [
+                AttentionItem.model_validate(
+                    {
+                        "taskId": task.task_id,
+                        "projectId": task.project_id,
+                        "projectName": task.project_name,
+                        "clientName": task.client_name,
+                        "sgCode": task.sg_code,
+                        "area": task.area,
+                        "taskType": task.type,
+                        "taskStatus": task.status,
+                        "leakTimeStatus": task.leak_time_status,
+                        "deadlineAt": task.deadline_at,
+                        "startedAt": task.started_at,
+                    }
+                )
+                for task in ordered
+            ]
+            return ManagementSnapshot(
+                overview=overview.model_copy(
+                    update={"attention": overview.attention.model_copy(update={"items": attention})}
+                ),
+                attention_coverage=Coverage(
+                    total=overview.attention.total,
+                    returned=len(attention),
+                    has_more=overview.attention.total > len(attention),
+                ),
+                tasks=compact,
+                tasks_coverage=Coverage(
+                    total=len(tasks), returned=len(compact), has_more=len(tasks) > len(compact)
+                ),
+            )
+
+    async def compare_projects(
+        self, project_ids: list[UUID], *, include_documents: bool, include_activity: bool
+    ) -> list[ComparedProject]:
+        if not 2 <= len(project_ids) <= 4 or len(set(project_ids)) != len(project_ids):
+            raise InvalidArguments()
+        identifiers = [validate_project_id(identifier) for identifier in project_ids]
+        await self._authorize()
+        with measure("comparison_fetch_ms"):
+            reads = [
+                asyncio.create_task(
+                    self._compared_project(identifier, include_documents, include_activity)
+                )
+                for identifier in identifiers
+            ]
+            try:
+                return list(await asyncio.gather(*reads))
+            finally:
+                for pending in reads:
+                    if not pending.done():
+                        pending.cancel()
+                await asyncio.gather(*reads, return_exceptions=True)
+
+    async def _compared_project(
+        self, identifier: UUID, documents: bool, activity: bool
+    ) -> ComparedProject:
+        details_read = asyncio.create_task(self._project_details(identifier))
+        documents_read = (
+            asyncio.create_task(self._client.list_project_documents(identifier))
+            if documents
+            else None
+        )
+        activity_read = (
+            asyncio.create_task(self._client.list_project_notifications(identifier))
+            if activity
+            else None
+        )
+        reads = [read for read in (details_read, documents_read, activity_read) if read is not None]
+        try:
+            await asyncio.gather(*reads)
+            return ComparedProject(
+                details=details_read.result(),
+                documents=documents_read.result() if documents_read else None,
+                activity=activity_read.result() if activity_read else None,
+            )
+        finally:
+            for pending in reads:
+                if not pending.done():
+                    pending.cancel()
+            await asyncio.gather(*reads, return_exceptions=True)
 
     async def get_project_documents(self, project_id: UUID | str) -> ProjectDocuments:
         identifier = validate_project_id(project_id)

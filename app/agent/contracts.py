@@ -82,6 +82,19 @@ class SearchArguments(StrictModel):
     query: str = Field(min_length=1, max_length=200)
 
 
+class ComparisonArguments(StrictModel):
+    project_ids: list[UUID] = Field(min_length=2, max_length=4)
+    include_documents: bool
+    include_activity: bool
+
+    @field_validator("project_ids")
+    @classmethod
+    def distinct_projects(cls, value: list[UUID]) -> list[UUID]:
+        if len(set(value)) != len(value):
+            raise ValueError("Comparison requires distinct projects")
+        return value
+
+
 @dataclass(frozen=True)
 class ToolDefinition:
     name: str
