@@ -16,6 +16,7 @@ from app.live.config import MAX_PROVIDER_BYTES, LiveSettings
 from app.live.contracts import LiveSessionResponse, OpaqueId
 from app.live.errors import LiveNotConfigured, LiveProviderError
 from app.live.prompt import DELEGATION_INSTRUCTIONS, LIVE_INSTRUCTIONS, consultation_tool
+from app.live.sideband_transport import OpenAISidebandConnector, SidebandTransport
 
 CREATE_URL = "https://api.openai.com/v1/live/sessions"
 
@@ -26,16 +27,31 @@ def session_config(settings: LiveSettings) -> dict[str, object]:
         "instructions": LIVE_INSTRUCTIONS,
         "audio": {"output": {"voice": settings.voice}},
         "store": False,
-        # No session.update or instruction injection from the browser. Tool results
-        # must be relayed by the future frontend; this channel is not a fact authority.
+        # Frontend has lifecycle/UI only; private sideband owns tools and continuation.
         "client": {
             "data_channel": {
                 "allowed_client_events": [
-                    "response.item.create",
-                    "response.create",
                     "session.close",
                 ],
-                "allowed_server_events": "all",
+                "allowed_server_events": [
+                    {"type": kind}
+                    for kind in (
+                        "session.started",
+                        "session.closed",
+                        "error",
+                        "session.input_transcript.delta",
+                        "session.output_transcript.delta",
+                    )
+                ]
+                + [
+                    {"type": "response.event", "response_event": kind}
+                    for kind in (
+                        "response.created",
+                        "response.completed",
+                        "response.failed",
+                        "response.incomplete",
+                    )
+                ],
             }
         },
         "delegation": {
@@ -46,7 +62,13 @@ def session_config(settings: LiveSettings) -> dict[str, object]:
                 "tools": [consultation_tool()],
                 "tool_choice": "auto",
                 "parallel_tool_calls": False,
-                "max_output_tokens": 4096,
+                "max_output_tokens": settings.delegation_max_output_tokens,
+                "service_tier": settings.service_tier,
+                **(
+                    {"reasoning": {"effort": settings.delegation_effort}}
+                    if settings.delegation_effort is not None
+                    else {}
+                ),
             },
         },
     }
@@ -79,6 +101,11 @@ class OpenAILiveProvider:
         self._http = http
         self._key = key
         self._settings = settings
+
+    async def attach(self, session_id: str) -> SidebandTransport:
+        return await OpenAISidebandConnector(self._key, self._settings.timeout_seconds).attach(
+            session_id
+        )
 
     async def create(self, sdp: str) -> LiveSessionResponse:
         payload = {

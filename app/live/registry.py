@@ -47,6 +47,9 @@ class LiveRegistry:
         self._entries.clear()
         self._pending.clear()
 
+    def discard(self, identifier: str) -> None:
+        self._entries.pop(identifier, None)
+
     @contextmanager
     def reserve(self, subject: str) -> Iterator[None]:
         self.cleanup()

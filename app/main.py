@@ -1,7 +1,6 @@
-import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 import httpx
@@ -20,7 +19,10 @@ from app.clients.transport import create_http_client
 from app.core.config import Settings
 from app.core.errors import IntelligenceError
 from app.core.observability import CorrelationMiddleware
+from app.live.credentials import LiveCredentialContext
+from app.live.executor import LiveAgentExecutor
 from app.live.registry import LiveRegistry
+from app.live.sideband import LiveSidebandManager
 
 
 def create_app(
@@ -41,13 +43,18 @@ def create_app(
             application.state.control_http = http
             registry = LiveRegistry()
             application.state.live_registry = registry
-            cleanup = asyncio.create_task(registry.maintain())
+            credentials = LiveCredentialContext()
+            sidebands = LiveSidebandManager(
+                registry, credentials, LiveAgentExecutor(http, credentials)
+            )
+            application.state.live_credentials = credentials
+            application.state.live_sidebands = sidebands
             try:
                 yield
             finally:
-                cleanup.cancel()
-                with suppress(asyncio.CancelledError):
-                    await cleanup
+                await sidebands.shutdown()
+                del application.state.live_sidebands
+                del application.state.live_credentials
                 registry.clear()
                 del application.state.live_registry
                 del application.state.control_http

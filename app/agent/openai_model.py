@@ -12,6 +12,7 @@ from openai.types.responses import (
     ResponseReasoningItem,
     ToolParam,
 )
+from openai.types.shared.reasoning_effort import ReasoningEffort
 from pydantic import SecretStr, ValidationError
 
 from app.agent.contracts import (
@@ -37,9 +38,20 @@ from app.core.errors import IntelligenceError
 class OpenAIModel:
     """Official SDK adapter. Inputs contain only messages and tool schemas, never auth context."""
 
-    def __init__(self, client: openai.AsyncOpenAI, model: str) -> None:
+    def __init__(
+        self,
+        client: openai.AsyncOpenAI,
+        model: str,
+        *,
+        reasoning_effort: ReasoningEffort | None = None,
+        max_output_tokens: int = 3000,
+        concise: bool = False,
+    ) -> None:
         self._client = client
         self._model = model
+        self._effort = reasoning_effort
+        self._output_limit = max_output_tokens
+        self._concise = concise
         # Provider protocol context only, scoped to this chat's adapter instance.
         # The Core still owns the transcript, execution and all call limits.
         self._replay: dict[tuple[ToolCall, ...], ResponseInputParam] = {}
@@ -89,7 +101,13 @@ class OpenAIModel:
         try:
             response = await self._client.responses.create(
                 model=self._model,
-                instructions=SYSTEM_PROMPT,
+                instructions=SYSTEM_PROMPT
+                + (
+                    "\nFor spoken interaction, answer essentials in 1-3 sentences normally. "
+                    "Keep necessary facts and clarification; do not recite presentation metadata."
+                    if self._concise
+                    else ""
+                ),
                 input=wire,
                 tools=schemas,
                 parallel_tool_calls=False,
@@ -101,7 +119,8 @@ class OpenAIModel:
                         "schema": ModelAnswer.model_json_schema(),
                     },
                 },
-                max_output_tokens=3000,
+                max_output_tokens=self._output_limit,
+                reasoning={"effort": self._effort} if self._effort is not None else openai.omit,
                 store=False,
                 include=["reasoning.encrypted_content"],
             )

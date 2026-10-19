@@ -1,3 +1,4 @@
+from time import perf_counter
 from uuid import UUID
 
 import httpx
@@ -18,6 +19,7 @@ from app.core.errors import (
     ManagementRequired,
     ResourceNotFound,
 )
+from app.core.latency import BackendOperation, backend_timing
 
 
 def validate_project_id(project_id: UUID | str) -> UUID:
@@ -45,7 +47,23 @@ class SnGControlClient:
     def clear_credentials(self) -> None:
         self._token = None
 
-    async def _get[T](self, path: str, adapter: TypeAdapter[T]) -> T:
+    async def _get[T](self, path: str, adapter: TypeAdapter[T], operation: BackendOperation) -> T:
+        start = perf_counter()
+        status = "cancelled"
+        try:
+            result = await self._read(path, adapter)
+            status = "success"
+            return result
+        except IntelligenceError as exc:
+            status = exc.code
+            raise
+        except Exception:
+            status = "failure"
+            raise
+        finally:
+            backend_timing(operation, (perf_counter() - start) * 1000, status)
+
+    async def _read[T](self, path: str, adapter: TypeAdapter[T]) -> T:
         if self._token is None:
             raise AuthenticationRequired()
         request = self._http.build_request(
@@ -90,33 +108,43 @@ class SnGControlClient:
         raise BackendResponseError()
 
     async def get_current_user(self) -> CurrentUser:
-        return await self._get("/api/auth/me", TypeAdapter(CurrentUser))
+        return await self._get("/api/auth/me", TypeAdapter(CurrentUser), "auth_me")
 
     async def get_management_overview(self) -> ManagementOverview:
-        return await self._get("/api/management/overview", TypeAdapter(ManagementOverview))
+        return await self._get(
+            "/api/management/overview", TypeAdapter(ManagementOverview), "management_overview"
+        )
 
     async def list_management_tasks(self) -> list[ManagementTask]:
-        return await self._get("/api/management/tasks", TypeAdapter(list[ManagementTask]))
+        return await self._get(
+            "/api/management/tasks", TypeAdapter(list[ManagementTask]), "management_tasks"
+        )
 
     async def get_project(self, project_id: UUID | str) -> Project:
         identifier = validate_project_id(project_id)
-        return await self._get(f"/api/projects/{identifier}", TypeAdapter(Project))
+        return await self._get(
+            f"/api/projects/{identifier}", TypeAdapter(Project), "project_details"
+        )
 
     async def list_projects(self) -> list[Project]:
-        return await self._get("/api/projects", TypeAdapter(list[Project]))
+        return await self._get("/api/projects", TypeAdapter(list[Project]), "projects_list")
 
     async def list_project_tasks(self, project_id: UUID | str) -> list[ProjectTask]:
         identifier = validate_project_id(project_id)
-        return await self._get(f"/api/projects/{identifier}/tasks", TypeAdapter(list[ProjectTask]))
+        return await self._get(
+            f"/api/projects/{identifier}/tasks", TypeAdapter(list[ProjectTask]), "project_tasks"
+        )
 
     async def list_project_documents(self, project_id: UUID | str) -> ProjectDocuments:
         identifier = validate_project_id(project_id)
         return await self._get(
-            f"/api/projects/{identifier}/documents", TypeAdapter(ProjectDocuments)
+            f"/api/projects/{identifier}/documents", TypeAdapter(ProjectDocuments), "documents"
         )
 
     async def list_project_notifications(self, project_id: UUID | str) -> list[ProjectNotification]:
         identifier = validate_project_id(project_id)
         return await self._get(
-            f"/api/projects/{identifier}/notifications", TypeAdapter(list[ProjectNotification])
+            f"/api/projects/{identifier}/notifications",
+            TypeAdapter(list[ProjectNotification]),
+            "notifications",
         )

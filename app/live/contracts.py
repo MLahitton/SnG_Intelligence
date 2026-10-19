@@ -1,10 +1,13 @@
 import re
-from typing import Annotated, Literal, Protocol
+from typing import TYPE_CHECKING, Annotated, Literal, Protocol
 
 from pydantic import Field, field_validator
 
-from app.agent.contracts import ChatRequest, StrictModel
+from app.agent.contracts import StrictModel
 from app.live.config import MAX_SDP_BYTES
+
+if TYPE_CHECKING:
+    from app.live.sideband_transport import SidebandTransport
 
 OpaqueId = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")]
 
@@ -48,19 +51,10 @@ class LiveCloseRequest(StrictModel):
     session_id: OpaqueId = Field(alias="sessionId")
 
 
-class LiveDelegateRequest(LiveCloseRequest):
-    call_id: OpaqueId = Field(alias="callId")
-    question: str = Field(min_length=1, max_length=4000, repr=False)
-
-    @field_validator("question")
-    @classmethod
-    def non_blank(cls, value: str) -> str:
-        return ChatRequest.non_blank(value)
-
-
 class LiveCloseResponse(StrictModel):
     closed: Literal[True] = True
 
 
 class LiveSessionProvider(Protocol):
     async def create(self, sdp: str) -> LiveSessionResponse: ...
+    async def attach(self, session_id: str) -> "SidebandTransport": ...

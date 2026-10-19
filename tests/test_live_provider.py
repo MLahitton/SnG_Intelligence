@@ -53,6 +53,13 @@ async def test_real_http_contract_config_and_credential_isolation():
         assert tool["parameters"]["required"] == ["question"]
         assert set(tool["parameters"]["properties"]) == {"question"}
         assert "session.update" not in session["client"]["data_channel"]["allowed_client_events"]
+        assert session["client"]["data_channel"]["allowed_client_events"] == ["session.close"]
+        selectors = session["client"]["data_channel"]["allowed_server_events"]
+        assert {"type": "session.input_transcript.delta"} in selectors
+        assert {
+            "type": "response.event",
+            "response_event": "response.output_item.done",
+        } not in selectors
         # Drop provider-only fields, including any accidental echoed credential.
         return httpx.Response(201, json={**created(), "internal_secret": KEY})
 

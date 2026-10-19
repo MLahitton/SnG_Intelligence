@@ -39,3 +39,18 @@ class LiveBodyTooLarge(IntelligenceError):
 class LiveMediaTypeError(IntelligenceError):
     status_code = 415
     code = "live_json_required"
+
+
+class LiveAttachError(IntelligenceError):
+    status_code = 502
+    code = "live_sideband_attach_failed"
+
+
+class LiveDisconnected(IntelligenceError):
+    status_code = 503
+    code = "live_sideband_disconnected"
+
+
+class LiveProtocolError(IntelligenceError):
+    status_code = 502
+    code = "live_sideband_protocol_error"

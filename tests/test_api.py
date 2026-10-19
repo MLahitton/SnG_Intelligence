@@ -144,7 +144,8 @@ def test_correlation_is_uuid_and_propagated(settings, mock_backend, supplied, ca
     UUID(identifier)
     assert calls[0]["request_id"] == identifier
     assert response.headers["cache-control"] == "no-store"
-    event = json.loads(next(r.message for r in caplog.records if r.name == "sng_intelligence"))
+    events = [json.loads(r.message) for r in caplog.records if r.name == "sng_intelligence"]
+    event = next(row for row in events if row.get("operation") == "session")
     assert event["request_id"] == identifier
     assert event["status"] == 200
     assert event["operation"] == "session"
@@ -163,7 +164,6 @@ def test_only_explicit_routes_no_cors_or_proxy(settings, mock_backend):
         ("/api/intelligence/voice/transcribe", "post"),
         ("/api/intelligence/voice/speech", "post"),
         ("/api/intelligence/live/session", "post"),
-        ("/api/intelligence/live/delegate", "post"),
         ("/api/intelligence/live/close", "post"),
     }
     with TestClient(app) as api:

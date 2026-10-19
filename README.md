@@ -1,4 +1,4 @@
-# SnG Intelligence — Realtime Voice 2A server support
+# SnG Intelligence — Realtime Voice 2C — server-side sideband
 
 Capa conversacional read-only de Gerencia. Agent Core utiliza herramientas de
 lectura y un proveedor LLM para responder preguntas. **SnG-Control-Backend es la única
@@ -12,8 +12,8 @@ Gerencia -> Intelligence API -> Agent Core -> ReadTools -> SnG Control
 
 No hay acceso a DB, copia persistida de Project/ProjectTask, cálculo de Leak Time,
 escrituras, RAG, embeddings ni conversaciones persistidas. Voice 1A agrega voz
-request/response sobre el mismo agente como fallback. Realtime Voice 2A agrega creación
-de sesiones GPT-Live y delegación protegida; el cliente WebRTC queda para otro bloque.
+request/response sobre el mismo agente como fallback. Realtime Voice 2C agrega sesiones GPT-Live y ejecución empresarial por sideband
+privado; el navegador conserva WebRTC, captions y controles.
 
 ## Estructura
 
@@ -186,7 +186,7 @@ inyectar ReadTools mediante `Depends`, sin argumentos de identidad. Las tools
 verifican Gerencia por sí mismas y validan UUID antes de cualquier I/O. El cliente
 también valida UUID. No se aceptan URLs, paths o queries en lugar de identificadores.
 
-La instancia de `SnGControlClient` es solo del request. `get_control_client` limpia
+La instancia de `SnGControlClient` es solo del request o de una ejecución del Agent Live. `get_control_client` limpia
 sus credenciales en `finally`. Un consumidor interno fuera de FastAPI debe respetar
 ese mismo ciclo de vida y llamar `clear_credentials()` en `finally`. No registrar
 el cliente, las tools o las credenciales como singleton ni suministrarlos a un LLM.
@@ -199,6 +199,9 @@ el cliente, las tools o las credenciales como singleton ni suministrarlos a un L
   inclusión en DTO, respuestas o logs. Se borra la referencia al finalizar y se
   elimina Authorization del request HTTP saliente tras completar o fallar la llamada.
   Esto reduce retención; Python no garantiza borrado físico de cadenas en memoria.
+  Excepción limitada de Voice 2C: el contexto privado Live puede retener el SecretStr
+  hasta 600 s para reautorizar cada ejecución del sideband; se revoca al terminar
+  la sesión. No cambia el ciclo de credenciales de chat ni voz básica.
 - `ReadOnlyTransport` impone GET, origen configurado, ocho rutas permitidas y
   ausencia de query/credenciales URL. Bloquea escrituras y descargas incluso si
   otro componente interno intenta construirlas. No hay API pública de HTTP arbitrario.
@@ -686,38 +689,31 @@ La confianza nativa sigue las APIs documentadas de
 [truststore](https://truststore.readthedocs.io/en/latest/) y
 [contextos SSL de HTTPX](https://www.python-httpx.org/advanced/ssl/).
 
-## Realtime Voice 2A: soporte servidor
+## Realtime Voice 2C: control server-side
 
 ```text
-Navegador futuro <---- WebRTC audio/data ----> OpenAI GPT-Live
-                                                |
-                                         Responses delegation
-                                                |
-                                  consult_sng_intelligence(question)
-                                                |
-                   relay futuro -> /live/delegate -> Agent Core actual
-                                                       |
-                                              ReadTools -> SnG Control
+Browser <-- WebRTC audio + captions/UI --> GPT-Live
+                                             |
+                                    private sideband WebSocket
+                                             |
+                                      SnG Intelligence
+                                             |
+                       ephemeral credentials -> Agent Core -> SnG Control
 ```
 
-Intelligence no recibe ni retransmite PCM. Live maneja turnos e interrupciones de
-forma nativa; no se implementa VAD en Python ni se añaden campos `turn_detection`
-de otra API. Live y delegación tienen prompts breves separados del Agent prompt.
-Para datos operacionales, la única función disponible es `consult_sng_intelligence`,
-con JSON schema estricto (`question`, sin campos adicionales). La delegación usa
-`tool_choice=auto`, `parallel_tool_calls=false` y ninguna herramienta alojada.
-Las seis tools empresariales permanecen exclusivamente dentro del Agent Core.
+El servidor es el único ejecutor de `consult_sng_intelligence`. Responses delegation
+recibe contexto de Live y produce preguntas autocontenidas para el Agent stateless.
+Las seis tools read-only, grounding, referencias y Presentation no se duplican ni
+se exponen directamente a Live. El browser no interpreta llamadas, no consulta
+`/live/delegate` y no envía tool outputs ni `response.create`. Ese endpoint fue eliminado.
 
-La delegación debe resolver el contexto de la sesión en una pregunta autocontenida:
-por ejemplo, «la de Ximena» después de una aclaración se convierte en «¿Cómo va Casa
-Ximena?». El agente ejecuta una consulta independiente, sin historial ni caché.
-Los prompts exigen usar únicamente hechos del resultado, con `spokenAnswer` como
-autoridad factual y nombre de proyecto como identidad principal. La respuesta
-canónica de `/delegate` conserva el grounding determinista existente. El audio que
-Live genera después está guiado por esas instrucciones; este servidor no valida
-determinísticamente cada palabra de ese audio.
+El SDK instalado (`openai==2.54.0`) no expone Live/sideband. Se mantiene el adapter
+HTTPX cerrado para creación y se añade `websockets==15.0.1` para attach async al origen
+fijo `wss://api.openai.com/v1/live/sessions/{session_id}/attach`. Conserva el ID
+recibido y usa la misma API key de creación. TLS verifica certificado y hostname;
+no hay redirects, proxies heredados ni URL elegible por usuarios/modelos.
 
-### Configuración y proveedor
+### Configuración
 
 ```dotenv
 SNG_INTELLIGENCE_LIVE_MODEL=gpt-live-1
@@ -727,113 +723,110 @@ SNG_INTELLIGENCE_LIVE_TIMEOUT_SECONDS=30
 SNG_INTELLIGENCE_LIVE_LIFETIME_SECONDS=600
 ```
 
-Modelos y voz son configurables; Marin es provisional. Se reutiliza `OPENAI_API_KEY`
-solo en servidor. Las tres primeras variables son necesarias para crear sesiones;
-su ausencia no impide `/health`, chat ni fallback configurados por separado. Timeout
-admite 1–60 segundos; lifetime local admite 1–600 segundos. La disponibilidad real
-de modelos depende del proyecto OpenAI; una configuración rechazada devuelve error
-seguro, nunca cambia de modelo silenciosamente.
+Se reutiliza `OPENAI_API_KEY` solo server-side. Modelos/voz son configurables;
+Marin es provisional. Live sigue siendo opcional para startup. Timeout admite
+1–60 segundos; lifetime admite 1–600. Se envía `session.store=false`; el Agent
+mantiene `store=false` en Responses. No se añade un campo anidado store no soportado.
+Esto no afirma ausencia de toda retención operativa del proveedor.
 
-El SDK instalado al implementar este bloque (`openai==2.54.0`) no expone Live.
-El adapter usa exclusivamente HTTPX async hacia
-`POST https://api.openai.com/v1/live/sessions`, con JSON `session` y
-`transport: {type: "webrtc", sdp: "..."}`. No acepta URL ni configuración del caller.
-TLS valida certificados y hostname con el almacén del sistema; no sigue redirects
-ni hereda proxies de entorno. No se añadió otra dependencia.
+### Contratos y creación atómica
 
-Se envía `session.store=false`, campo soportado por Live; no se inventa un campo
-`delegation.responses.store`. El Agent Core mantiene su propio `store=false` en
-Responses API. Esto no afirma ausencia de toda retención operativa del proveedor.
-El contexto activo del proveedor es distinto de persistir conversaciones en SnG.
-Referencias: [crear sesión Live](https://developers.openai.com/api/reference/resources/live/methods/create),
-[delegación](https://developers.openai.com/api/docs/guides/live-delegation) y
-[controles de datos](https://developers.openai.com/api/docs/guides/your-data).
-
-### Contratos HTTP y relay del futuro frontend
-
-Los tres endpoints usan `Authorization: Bearer <Google ID Token>` y validan Gerencia
-contra `/api/auth/me` en cada request. Solo admiten JSON, sin campos adicionales:
-
-| Endpoint POST | Request | Respuesta |
+| POST Management-only | Request | Response |
 | --- | --- | --- |
-| `/api/intelligence/live/session` | `{"sdp":"<SDP offer>"}` | 201 `{"sessionId":"<opaque>","sdp":"<SDP answer>"}` |
-| `/api/intelligence/live/delegate` | `{"sessionId":"<opaque>","callId":"<opaque>","question":"¿Cómo va Casa Ximena?"}` | 200 contrato `ChatResponse` existente |
+| `/api/intelligence/live/session` | `{"sdp":"<offer>"}` | 201 `{"sessionId":"<opaque>","sdp":"<answer>"}` |
 | `/api/intelligence/live/close` | `{"sessionId":"<opaque>"}` | 200 `{"closed":true}` |
 
-`ChatResponse` contiene exclusivamente `responseType`, `answer`, `spokenAnswer`,
-`references` y `presentation`, con la misma construcción desde evidencia de chat.
-No se retornan traces, HTTP internals ni credenciales. SDP está limitado a 32 KiB y
-se comprueba su estructura de audio/data, ICE y fingerprint; OpenAI realiza la
-negociación final. El cuerpo JSON tiene límite 64 KiB y recepción de 10 segundos;
-la respuesta del proveedor está limitada a 128 KiB. `question` admite 1–4000
-caracteres y rechaza preguntas en blanco; IDs opacos de 1–128 caracteres usan letras,
-dígitos, guion o guion bajo. No son URLs ni selectores de rutas.
+Se autentica contra `/api/auth/me` antes de capturar la credencial. Tras crear la
+sesión remota se registra ownership, se captura el contexto efímero y se adjunta
+el sideband **antes** del 201. Ready significa handshake WebSocket autenticado
+completado; no hay roundtrip ficticio ni `session.start` repetido. Si attach falla,
+se revocan credenciales y registry, se hace cleanup remoto best-effort y no se
+entrega una sesión usable. No se devuelven socket URL, claves ni estado interno.
 
-El futuro navegador deberá:
+SDP máximo 32 KiB, cuerpo HTTP máximo 64 KiB, respuesta de creación máxima 128 KiB.
+Se admiten dos sesiones por subject y 128 por instancia, incluyendo creaciones
+pendientes. Cada sesión admite 64 llamadas aceptadas, batch de hasta ocho y un
+batch empresarial activo a la vez. No hay caché de resultados ni reintento de tools.
 
-1. Crear su offer con audio y data channel y enviarlo a `/live/session`; aplicar el
-   answer recibido, sin enviar Google token por WebRTC ni recibir la API key.
-2. Leer `response.event` y su evento anidado `response.output_item.done`. Para un
-   item `function_call`, aceptar únicamente `consult_sng_intelligence`, parsear sus
-   argumentos y enviar `sessionId`, `callId` y `question` a `/live/delegate`.
-3. Usar la respuesta HTTP canónica para UI/referencias; devolverla por el data channel
-   con `response.item.create`, item `{type:"function_call_output",call_id,output}`,
-   donde `output` es el JSON serializado de la respuesta. Continuar con
-   `response.create`. `response.item.create` no emite confirmación de éxito.
-4. En errores no inventar resultados ni reintentar automáticamente la misma llamada.
-   Al salir, expirar el plazo local o recibir `session.closed`, limpiar la conexión.
-   Para cerrar, enviar `session.close`, procesar `session.closed` y cerrar WebRTC;
-   además llamar `/live/close` para revocar autorización local.
+### Eventos y ejecución
 
-Los únicos eventos de cliente permitidos por la configuración del data channel son
-`response.item.create`, `response.create` y `session.close`; no se permite
-`session.update`. El relay aún no está implementado en Frontend. El servidor valida
-ownership y rechaza replay, pero no puede acreditar que un `callId` reenviado por
-un navegador provenga realmente de OpenAI. Tampoco puede certificar un tool output
-que un cliente altere antes de retransmitirlo. Por ello este canal no es autoridad
-de negocio: las operaciones siguen cerradas, read-only y autorizadas por Backend;
-las referencias públicas se toman de la respuesta HTTP de Agent Core.
+El parser Pydantic cerrado reconoce `session.delegation.created`, `response.event`
+con `response.created`, `response.output_item.done` y `response.completed`, además
+de fallos y cierre. Asocia delegation ID, response ID y call ID. Solo items
+`function_call` finalizados con nombre `consult_sng_intelligence` y JSON estricto
+`{question: string}` de 1–4000 caracteres pueden ejecutar. Deltas o arguments.done
+solos nunca ejecutan. Otros nombres o argumentos inválidos cierran el flujo de forma segura.
 
-### Registro, cierre, límites y errores
+Se acumula únicamente el batch pendiente hasta `response.completed` (su output
+puede estar vacío). Se ejecuta cada llamada una sola vez por sesión/callId; las
+repetidas se ignoran sin reenviar resultados. Cada Agent.run vuelve a validar
+Gerencia y subject. Para cada resultado se envía `response.item.create` con item
+`{type:"function_call_output",call_id,output}`, usando como output JSON solo
+`responseType` y `spokenAnswer`. Después del batch se envía una sola `response.create`.
+No se envían trazas, URLs, auth, historial de tools ni Presentation innecesaria a Live.
 
-El registry guarda solo ID de sesión, subject oficial, tiempos monotónicos, estado
-de ejecución y hasta 64 IDs de llamadas para impedir replay. No guarda credenciales,
-SDP, audio, preguntas, transcripts, respuestas ni historia. Presencia equivale a
-sesión activa; cierre y expiración eliminan la entrada. Hay limpieza cada 15 segundos,
-en accesos y al apagar la aplicación. Reiniciar pierde las sesiones locales.
-Desplegar con un solo worker o afinidad de instancia; no hay registry compartido.
+Los contratos semánticos completos siguen disponibles en chat/fallback; el resultado
+del Agent los construye igualmente, pero Live solo necesita el contenido hablado.
+El panel Live presenta captions, sin fabricar tarjetas/referencias desde audio ni
+recibir resultados empresariales del relay eliminado. Chat y fallback conservan
+sus referencias y tarjetas. El audio Live está guiado por prompts; no se afirma
+validación determinista de cada palabra pronunciada.
 
-Se admiten hasta 128 sesiones por instancia, dos por subject, incluyendo creaciones
-pendientes. Una delegación simultánea por sesión; máximo 64 intentos, sin caché de
-resultados. Llamadas fallidas también consumen su ID; replay/concurrencia devuelve
-409. Si la sesión se cierra o vence durante Agent.run, no se entrega su resultado.
+### Contexto efímero de credenciales (excepción autorizada solo para Live)
 
-La ventana local de autorización es de 10 minutos como máximo. **No es un parámetro
-de duración enviado al proveedor ni un cierre remoto de media.** El navegador debe
-aplicar ese límite (o el configurado menor) y cualquier cierre anterior del proveedor.
-No se garantiza aquí un máximo WebRTC remoto no publicado: el endpoint oficial de
-hangup documenta SIP y no se reutiliza para WebRTC. `/live/close` revoca únicamente
-la delegación local; no detiene por sí mismo audio remoto. No hay reconexión automática.
+`LiveCredentialContext` mantiene privadamente `sessionId -> SecretStr + expectedSubject
++ expiresAt`, fuera de LiveEntry, registry y contratos serializables. No es una
+política nueva para chat ni voz básica. SecretStr reduce exposición accidental;
+**no cifra memoria**. No se guarda en disco, DB, Redis, logs, prompts o proveedor.
 
-| Situación | HTTP |
-| --- | --- |
-| Sin sesión Google / no Gerencia | 401 / 403 |
-| Sesión Live desconocida, cerrada o expirada / ajena | 404 / 403 |
-| Contrato o SDP inválido / cuerpo demasiado grande / MIME incorrecto | 422 / 413 / 415 |
-| Replay o llamada concurrente / límite local alcanzado | 409 / 429 |
-| Live sin configurar, configuración/modelo rechazado, proveedor 429 | 503 |
-| Creación fallida, respuesta inválida o proveedor 5xx | 502 |
-| Timeout | 504 |
+El límite es el menor entre vida restante de Live, configuración local y 600 s.
+Antes de **cada** Agent.run se consulta `/api/auth/me` con esa credencial: debe
+seguir siendo Gerencia y tener exactamente el subject original. 401, 403, subject
+distinto o isManagement=false impiden Agent.run, revocan y cierran la sesión.
+El cliente Backend limpia su referencia al finalizar cada ejecución. La credencial
+no entra en tool arguments/evidence ni en OpenAI; los guards siguen activos.
 
-Los fallos del Agent conservan su traducción segura existente. No se devuelve un
-error 401 de Google para un fallo del proveedor. Los logs contienen requestId,
-evento created/closed/delegated, duración, contador y categoría segura; no SDP,
-subject, sessionId, contenidos ni credenciales. Ninguna grabación se persiste.
+Cierre, expiración, desconexión, fallo definitivo, rollback y shutdown revocan el
+contexto antes de esperar I/O remoto. Las consultas en curso se cancelan y no se
+entregan resultados tardíos. Una nueva sesión exige nueva autenticación HTTP;
+ningún reattach de cleanup renueva credenciales. Python no garantiza borrado físico
+inmediato de cadenas; la garantía es eliminar referencias bajo control de la aplicación.
 
-`/voice/transcribe`, `/voice` y `/voice/speech` siguen siendo fallback push-to-talk,
-con `SNG_INTELLIGENCE_TRANSCRIPTION_LANGUAGE=es`. Live no llama esos endpoints.
-Las pruebas Live usan fake provider y HTTP mock: no necesitan cuentas ni llamadas
-pagadas. El smoke de WebRTC, turnos y barge-in queda pendiente del cliente futuro.
+### Cierre, fallos y recursos
+
+`/live/close` valida owner, revoca, envía `session.close`, espera brevemente
+`session.closed`, cancela tasks y cierra WebSocket. Repetir cierre es idempotente
+para el mismo owner mientras se conserve su tombstone acotado (máximo 128).
+Desconocidos devuelven 404 y otra identidad 403. El navegador también libera mic,
+data channel, peer connection y audio; aplica máximo absoluto de 600 s.
+
+Expiración y shutdown siguen el mismo cleanup. Si el socket falla, se intenta una
+sola conexión adicional exclusivamente para cierre remoto, con tiempo acotado;
+no reanuda tools ni crea una conversación. Si OpenAI es inalcanzable, el cierre
+remoto no puede garantizarse: se registra `remote_close_unconfirmed`, se revoca
+localmente y el navegador conserva sus límites y manejo de cierre/pérdida de red.
+No hay reconexión infinita. El registry es por instancia: usar un worker o afinidad;
+reiniciar pierde sesiones y credenciales locales.
+
+El sideband puede recibir copias de audio/transcripts por protocolo; se descartan
+sin procesar audio, acumular historia ni persistir. El media principal permanece
+en WebRTC. Cada frame tiene límite 256 KiB y la cola de transporte ocho frames.
+Los logs del transporte están deshabilitados; observabilidad emite solo requestId,
+eventos, duración, contador y categorías seguras. Fallos de configuración/rate limit
+son 503, timeout 504, attach/protocolo 502; nunca se expone el error raw del proveedor.
+
+El data channel permite al cliente solo `session.close`; recibe exclusivamente
+lifecycle, captions, error y progreso Responses sin items de tools/razonamiento.
+La conexión privada conserva permisos de servidor. No hay endpoint público de attach.
+
+`/voice/transcribe`, `/voice` y `/voice/speech` permanecen como fallback independiente,
+con transcripción española configurada. No hay VAD Python, cola TTS de Live, DB,
+memoria persistente, RAG ni LangGraph. Las pruebas usan providers/sidebands fake y
+HTTP mock, sin llamadas pagadas. Smoke acústico real queda para revisión posterior.
+
+Protocolo oficial: [sideband](https://developers.openai.com/api/docs/guides/voice-server-controls?api=live),
+[delegación](https://developers.openai.com/api/docs/guides/live-delegation),
+[permisos del data channel](https://developers.openai.com/api/reference/resources/live/methods/create).
 
 ## Estado y deuda intencional
 
@@ -848,10 +841,9 @@ Google vigentes; las pruebas automatizadas no sustituyen ese smoke.
 **Presentation & Voice 1B implementado:** contrato semántico cerrado, metadata desde
 evidence, nombre primero, rendering compartido de answer/spokenAnswer, léxico mínimo
 y estilos TTS por responseType. Sin segundo agente ni nueva capacidad operacional.
-**Realtime Voice 2A implementado:** soporte servidor de GPT-Live con WebRTC, Responses
-delegation y registro efímero de autorización. No incluye implementación del navegador.
-**Pendiente en este repositorio/bloque:** cliente WebRTC y smoke de conversación continua,
-turnos/interrupciones reales y cierre coordinado con el navegador.
+**Realtime Voice 2C implementado:** sideband privado, ejecución server-side y credenciales
+efímeras. Frontend autorizado actualizado para UI/captions sin relay empresarial.
+**Pendiente:** smoke real de conversación continua, turnos/interrupciones y cierre remoto.
 No hay memoria de negocio, persistencia local de conversaciones ni análisis de bytes
 documentales. Live mantiene contexto conversacional durante la sesión del proveedor;
 Agent Core continúa siendo stateless.
@@ -859,3 +851,13 @@ RAG continúa fuera de alcance sin caso de uso explícito de contenido no estruc
 
 Referencias OpenAI: [function calling](https://developers.openai.com/api/docs/guides/function-calling)
 y [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+## Performance 2D — instrumentación y mejoras locales
+
+Voice 2C se conserva. [PERFORMANCE_2D.md](PERFORMANCE_2D.md) describe las métricas,
+configuración Live independiente, benchmark offline/manual y límites de medición.
+Cada Agent.run de Live revalida Gerencia una vez; sus tools reutilizan un contexto
+privado ligado a esa ejecución, que se invalida al salir. No hay cache entre turnos.
+`find_projects` ejecuta en paralelo las dos lecturas independientes y cancela la hermana
+ante error/cancelación. Chat y fallback conservan sus comprobaciones por tool.
+No se cambió el modelo seleccionado ni se configuró VAD de Realtime en GPT-Live.

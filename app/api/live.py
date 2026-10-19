@@ -1,30 +1,30 @@
 import asyncio
 from collections.abc import AsyncIterator, Callable, Coroutine
-from time import monotonic, perf_counter
+from time import monotonic
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.routing import APIRoute
 from starlette.types import Message
 
-from app.agent.contracts import ChatResponse
-from app.agent.core import Agent
 from app.agent.errors import ProviderTimeout
 from app.agent.security import CredentialGuard
-from app.api.dependencies import get_agent, get_credential_guard, get_management_identity
+from app.api.dependencies import get_credential_guard, get_management_identity
+from app.auth.management_guard import extract_bearer
 from app.contracts.auth import CurrentUser
 from app.live.config import MAX_BODY_BYTES, LiveSettings
 from app.live.contracts import (
     LiveCloseRequest,
     LiveCloseResponse,
-    LiveDelegateRequest,
     LiveSessionProvider,
     LiveSessionRequest,
     LiveSessionResponse,
 )
+from app.live.credentials import LiveCredentialContext
 from app.live.errors import LiveBodyTooLarge, LiveMediaTypeError
 from app.live.provider import configured_live_provider
-from app.live.registry import LiveEntry, LiveRegistry
+from app.live.registry import LiveRegistry
+from app.live.sideband import LiveSidebandManager
 
 
 class LiveRoute(APIRoute):
@@ -105,48 +105,24 @@ async def live_session(
         result = await provider.create(body.sdp)
         guard.check(result.model_dump_json())
         registry.add(result.session_id, identity.subject, settings.lifetime_seconds)
+        credentials = cast(LiveCredentialContext, request.app.state.live_credentials)
+        manager = cast(LiveSidebandManager, request.app.state.live_sidebands)
+        try:
+            credentials.capture(
+                result.session_id,
+                extract_bearer(request.headers.getlist("authorization")),
+                identity.subject,
+                registry.owned(result.session_id, identity.subject).expires_at,
+            )
+            await manager.attach(
+                result.session_id, identity.subject, provider, str(request.state.request_id)
+            )
+        except BaseException:
+            credentials.revoke(result.session_id)
+            registry.discard(result.session_id)
+            raise
     request.state.live_event = "created"
     return result
-
-
-async def get_delegate_access(
-    body: LiveDelegateRequest,
-    identity: Annotated[CurrentUser, Depends(get_management_identity)],
-    registry: Annotated[LiveRegistry, Depends(get_live_registry)],
-    guard: Annotated[CredentialGuard, Depends(get_credential_guard)],
-) -> LiveEntry:
-    guard.check(body.model_dump_json())
-    return registry.owned(body.session_id, identity.subject)
-
-
-def get_live_agent(
-    access: Annotated[LiveEntry, Depends(get_delegate_access)],
-    agent: Annotated[Agent, Depends(get_agent)],
-) -> Agent:
-    return agent
-
-
-@router.post("/delegate", response_model=ChatResponse)
-async def live_delegate(
-    body: LiveDelegateRequest,
-    request: Request,
-    identity: Annotated[CurrentUser, Depends(get_management_identity)],
-    registry: Annotated[LiveRegistry, Depends(get_live_registry)],
-    agent: Annotated[Agent, Depends(get_live_agent)],
-    guard: Annotated[CredentialGuard, Depends(get_credential_guard)],
-) -> ChatResponse:
-    with registry.delegation(body.session_id, identity.subject, body.call_id) as entry:
-        start = perf_counter()
-        request.state.live_event = "delegated"
-        request.state.live_delegations_count = len(entry.calls)
-        try:
-            result = await agent.run(body.question)
-            # Closing, expiry or ownership changes while Agent runs invalidate delivery.
-            registry.owned(body.session_id, identity.subject)
-            guard.check(result.model_dump_json())
-            return result
-        finally:
-            request.state.agent_duration_ms = round((perf_counter() - start) * 1000, 2)
 
 
 @router.post("/close", response_model=LiveCloseResponse)
@@ -158,9 +134,7 @@ async def live_close(
     guard: Annotated[CredentialGuard, Depends(get_credential_guard)],
 ) -> LiveCloseResponse:
     guard.check(body.model_dump_json())
-    entry = registry.close(body.session_id, identity.subject)
+    manager = cast(LiveSidebandManager, request.app.state.live_sidebands)
+    await manager.close(body.session_id, identity.subject)
     request.state.live_event = "closed"
-    request.state.live_duration_seconds = registry.duration(entry)
-    request.state.live_delegations_count = len(entry.calls)
-    # Local revocation only. WebRTC owner sends session.close on its data channel.
     return LiveCloseResponse()

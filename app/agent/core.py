@@ -8,6 +8,7 @@ from app.agent.rendering import render_answer
 from app.agent.security import CredentialGuard
 from app.agent.toolbox import TOOL_DEFINITIONS, ToolBox
 from app.contracts.presentation import ProjectPresentation
+from app.core.latency import count, measure
 
 MAX_TOOL_ROUNDS = 6
 MAX_TOOL_CALLS = 8
@@ -31,7 +32,8 @@ class Agent:
     async def run(self, message: str) -> ChatResponse:
         try:
             async with asyncio.timeout(MAX_EXECUTION_SECONDS):
-                return await self._run(message)
+                with measure("agent_total_ms"):
+                    return await self._run(message)
         except TimeoutError:
             pass
         raise AgentLimitExceeded()
@@ -44,7 +46,9 @@ class Agent:
         self._metrics.update(tool_calls=0, tools_used=names)
         size = len(message.encode("utf-8"))
         for round_number in range(MAX_TOOL_ROUNDS + 1):
-            turn = await self._model.respond(tuple(messages), TOOL_DEFINITIONS)
+            count("agent_model_calls")
+            with measure("agent_model_ms"):
+                turn = await self._model.respond(tuple(messages), TOOL_DEFINITIONS)
             if turn.answer is not None:
                 if turn.calls or not turn.answer.answer.strip():
                     raise InvalidModelResponse()
@@ -83,8 +87,10 @@ class Agent:
                 self._guard.check(call.id)
                 self._guard.check(call.name)
                 self._tools.validate(call)
+            count("agent_tool_rounds")
             messages.append(ModelMessage(role="assistant", calls=turn.calls))
             for call in turn.calls:
+                count("tool_calls")
                 names.append(call.name)
                 self._metrics["tool_calls"] = len(names)
                 result = await self._tools.execute(call)

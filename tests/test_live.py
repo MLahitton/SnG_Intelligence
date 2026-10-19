@@ -2,11 +2,11 @@ import asyncio
 import json
 
 import pytest
-from conftest import PROJECT_ID, TOKEN
+from conftest import TOKEN
 from fastapi.testclient import TestClient
-from test_agent import FakeModel, call, final
+from test_agent import FakeModel, final
 
-from app.agent.errors import AgentUnavailable, ProviderTimeout
+from app.agent.errors import ProviderTimeout
 from app.api.dependencies import get_agent_model
 from app.api.live import get_live_provider, get_live_settings
 from app.live.config import LiveSettings
@@ -27,10 +27,42 @@ BASE = "/api/intelligence/live"
 KEY = "test-live-provider-key"
 
 
+class FakeSocket:
+    def __init__(self):
+        self.incoming = asyncio.Queue()
+        self.sent = []
+        self.closed = False
+
+    async def receive(self):
+        value = await self.incoming.get()
+        if isinstance(value, Exception):
+            raise value
+        return value if isinstance(value, str) else json.dumps(value)
+
+    async def send(self, event):
+        assert TOKEN not in json.dumps(event) and KEY not in json.dumps(event)
+        self.sent.append(event)
+        if event["type"] == "session.close":
+            self.incoming.put_nowait({"type": "session.closed"})
+
+    async def close(self):
+        self.closed = True
+
+
 class FakeLiveProvider:
     def __init__(self):
         self.calls = 0
         self.failure = None
+        self.socket = FakeSocket()
+        self.attach_failure = None
+        self.attached = False
+
+    async def attach(self, session_id):
+        assert session_id == SESSION
+        if self.attach_failure:
+            raise self.attach_failure
+        self.attached = True
+        return self.socket
 
     async def create(self, sdp):
         assert TOKEN not in sdp and KEY not in sdp
@@ -71,7 +103,6 @@ def delegate(api, **extra):
     "path,body",
     [
         ("session", {"sdp": SDP}),
-        ("delegate", {"sessionId": SESSION, "callId": "call_1", "question": "Consulta"}),
         ("close", {"sessionId": SESSION}),
     ],
 )
@@ -102,6 +133,7 @@ def test_create_safe_contract_registry_close_and_logs(settings, mock_backend, ca
     with TestClient(app) as api:
         response = create(api)
         assert response.status_code == 201
+        assert provider.attached
         assert response.json() == {"sessionId": SESSION, "sdp": SDP}
         assert response.headers["cache-control"] == "no-store"
         entry = app.state.live_registry.owned(SESSION, "manager")
@@ -117,7 +149,9 @@ def test_create_safe_contract_registry_close_and_logs(settings, mock_backend, ca
         assert secret not in caplog.text
     events = [json.loads(r.message) for r in caplog.records if r.name == "sng_intelligence"]
     assert any(e.get("live_event") == "created" for e in events)
-    assert any(e.get("live_event") == "closed" and e["live_duration_seconds"] >= 0 for e in events)
+    assert any(
+        e.get("live_event") == "session_closed" and e["live_duration_seconds"] >= 0 for e in events
+    )
 
 
 @pytest.mark.parametrize(
@@ -141,7 +175,7 @@ def test_invalid_sdp(settings, mock_backend, sdp):
     assert not provider.calls
 
 
-@pytest.mark.parametrize("path", ["session", "delegate", "close"])
+@pytest.mark.parametrize("path", ["session", "close"])
 def test_body_limit_before_deserialization(settings, mock_backend, path):
     app, provider, _ = live_app(settings, mock_backend[0])
     with TestClient(app) as api:
@@ -190,54 +224,7 @@ def test_creation_failure_releases_capacity(settings, mock_backend, error, statu
         assert not app.state.live_registry._entries
 
 
-def test_delegate_reuses_real_agent_and_grounded_semantics(settings, mock_backend, caplog):
-    model = FakeModel(
-        call("get_project_details", {"project_id": PROJECT_ID}),
-        final(
-            "Proyecto: sin iniciar.",
-            [f"project:{PROJECT_ID}"],
-            kind="project_status",
-            presentation=[f"project:{PROJECT_ID}"],
-        ),
-    )
-    app, _, _ = live_app(settings, mock_backend[0], model)
-    with TestClient(app) as api:
-        assert create(api).status_code == 201
-        response = delegate(api)
-        assert response.status_code == 200
-        data = response.json()
-        assert set(data) == {"responseType", "answer", "spokenAnswer", "references", "presentation"}
-        assert data["responseType"] == "project_status"
-        assert data["references"][0]["projectId"] == PROJECT_ID
-        assert data["presentation"]["project"]["projectId"] == PROJECT_ID
-        assert model.inputs[0][0][0].content == "¿Cómo va Casa Ximena?"
-        assert delegate(api).status_code == 409
-    assert TOKEN not in response.text
-    assert "Proyecto: sin iniciar." not in caplog.text
-
-
-@pytest.mark.parametrize(
-    "extra",
-    [
-        {"tool": "get_management_overview"},
-        {"question": ""},
-        {"question": "   "},
-        {"question": "q" * 4001},
-        {"callId": "../escape"},
-        {"sessionId": "https://evil.test"},
-        {"question": TOKEN},
-    ],
-)
-def test_delegate_closed_contract(settings, mock_backend, extra):
-    app, _, model = live_app(settings, mock_backend[0])
-    with TestClient(app) as api:
-        assert create(api).status_code == 201
-        response = delegate(api, **extra)
-    assert response.status_code == 422 and not model.inputs
-    assert TOKEN not in response.text
-
-
-@pytest.mark.parametrize("path", ["delegate", "close"])
+@pytest.mark.parametrize("path", ["close"])
 def test_foreign_management_subject_rejected(settings, mock_backend, payloads, path):
     app, _, model = live_app(settings, mock_backend[0])
     with TestClient(app) as api:
@@ -251,33 +238,6 @@ def test_foreign_management_subject_rejected(settings, mock_backend, payloads, p
         assert response.status_code == 403
         assert app.state.live_registry.owned(SESSION, "manager")
     assert not model.inputs
-
-
-@pytest.mark.parametrize("error,status", [(AgentUnavailable(), 503), (ProviderTimeout(), 504)])
-def test_agent_failure_no_fabricated_answer(settings, mock_backend, error, status):
-    app, _, _ = live_app(settings, mock_backend[0], FakeModel(error))
-    with TestClient(app) as api:
-        create(api)
-        response = delegate(api)
-        assert response.status_code == status
-        assert set(response.json()) == {"error", "requestId"}
-        assert not app.state.live_registry.owned(SESSION, "manager").busy
-
-
-@pytest.mark.parametrize("expiration", [False, True])
-def test_close_or_expiry_during_agent_prevents_delivery(settings, mock_backend, expiration):
-    class ExpiringModel(FakeModel):
-        async def respond(self, messages, tools):
-            if expiration:
-                app.state.live_registry.owned(SESSION, "manager").expires_at = 0
-            else:
-                app.state.live_registry.close(SESSION, "manager")
-            return await super().respond(messages, tools)
-
-    app, _, _ = live_app(settings, mock_backend[0], ExpiringModel(final()))
-    with TestClient(app) as api:
-        create(api)
-        assert delegate(api).status_code == 404
 
 
 def test_live_optional_configuration_health_and_fallback_contracts(
@@ -298,7 +258,6 @@ def test_live_optional_configuration_health_and_fallback_contracts(
         "/voice/transcribe",
         "/voice/speech",
         "/live/session",
-        "/live/delegate",
         "/live/close",
     ):
         assert "post" in schema["paths"]["/api/intelligence" + path]
@@ -338,29 +297,6 @@ def test_invalid_json_and_media_are_safe(settings, mock_backend, content, media,
         assert response.status_code == status
         assert set(response.json()) == {"error", "requestId"}
     assert not provider.calls
-
-
-def test_expired_session_rejected_before_agent_factory(settings, mock_backend):
-    app, _, model = live_app(settings, mock_backend[0])
-
-    def forbidden_factory():
-        pytest.fail("expired sessions must not acquire Agent provider")
-
-    app.dependency_overrides[get_agent_model] = forbidden_factory
-    with TestClient(app) as api:
-        create(api)
-        app.state.live_registry.owned(SESSION, "manager").expires_at = 0
-        assert delegate(api).status_code == 404
-    assert not model.inputs
-
-
-def test_management_revoked_after_creation(settings, mock_backend, payloads):
-    app, _, model = live_app(settings, mock_backend[0])
-    with TestClient(app) as api:
-        create(api)
-        payloads["/api/auth/me"]["isManagement"] = False
-        assert delegate(api).status_code == 403
-    assert not model.inputs
 
 
 @pytest.mark.parametrize("secret", [TOKEN, KEY])
