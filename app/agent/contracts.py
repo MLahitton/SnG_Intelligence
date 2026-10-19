@@ -43,7 +43,14 @@ class TaskReference(ReferenceBase):
     task_id: UUID
 
 
-Reference = Annotated[ProjectReference | TaskReference, Field(discriminator="type")]
+class DocumentReference(ReferenceBase):
+    type: Literal["document"] = "document"
+    document_id: UUID
+
+
+Reference = Annotated[
+    ProjectReference | TaskReference | DocumentReference, Field(discriminator="type")
+]
 
 
 class ChatResponse(StrictModel):
@@ -93,6 +100,38 @@ class ComparisonArguments(StrictModel):
         if len(set(value)) != len(value):
             raise ValueError("Comparison requires distinct projects")
         return value
+
+
+class DocumentSelection(StrictModel):
+    project_id: UUID
+    scope: Literal["current", "initial_handoff", "selected", "all_versions"]
+    document_ids: list[UUID] = Field(max_length=4)
+    filename: str | None = Field(max_length=250)
+
+    @model_validator(mode="after")
+    def valid_selector(self) -> "DocumentSelection":
+        if len(set(self.document_ids)) != len(self.document_ids):
+            raise ValueError("Duplicate document selection")
+        if self.scope == "selected":
+            if bool(self.document_ids) == bool(self.filename):
+                raise ValueError("Select IDs or an exact filename")
+        elif self.document_ids or self.filename is not None:
+            raise ValueError("Scope selects official metadata only")
+        return self
+
+
+class DocumentArguments(StrictModel):
+    selections: list[DocumentSelection] = Field(min_length=1, max_length=4)
+    question: str = Field(min_length=1, max_length=2000)
+    compare_versions: bool
+
+    @model_validator(mode="after")
+    def distinct_projects(self) -> "DocumentArguments":
+        if len({s.project_id for s in self.selections}) != len(self.selections):
+            raise ValueError("Select each project once")
+        if not self.question.strip():
+            raise ValueError("Blank analysis question")
+        return self
 
 
 @dataclass(frozen=True)

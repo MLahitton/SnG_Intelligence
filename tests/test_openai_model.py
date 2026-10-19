@@ -118,7 +118,7 @@ async def test_sdk_request_structured_output_and_no_credentials_in_content():
         assert "conversation" not in payload
         assert "messages" not in payload
         assert "response_format" not in payload
-        assert len(payload["tools"]) == 8
+        assert len(payload["tools"]) == 9
         assert all(
             t["type"] == "function"
             and t["strict"]

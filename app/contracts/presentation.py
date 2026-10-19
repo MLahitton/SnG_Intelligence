@@ -15,6 +15,7 @@ ResponseType = Literal[
     "comparison",
     "clarification",
     "unavailable",
+    "document_analysis",
 ]
 
 
@@ -66,7 +67,19 @@ class AreaItem(PresentationModel):
     due_soon: int
 
 
-EntityItem = Annotated[ProjectItem | TaskItem, Field(discriminator="kind")]
+class DocumentSource(PresentationModel):
+    kind: Literal["document"] = "document"
+    document_id: UUID
+    project_id: UUID
+    filename: str
+    size_bytes: int
+    uploaded_at: datetime
+    is_current: bool
+    in_initial_handoff: bool
+    replaced_by_document_id: UUID | None
+
+
+EntityItem = Annotated[ProjectItem | TaskItem | DocumentSource, Field(discriminator="kind")]
 
 
 class DirectPresentation(PresentationModel):
@@ -115,6 +128,14 @@ class ComparisonPresentation(PresentationModel):
 class ClarificationPresentation(PresentationModel):
     kind: Literal["clarification"] = "clarification"
     candidates: list[ProjectItem]
+    documents: list[DocumentSource] = Field(default_factory=list)
+
+
+class DocumentAnalysisPresentation(PresentationModel):
+    kind: Literal["document_analysis"] = "document_analysis"
+    project: ProjectItem
+    related_projects: list[ProjectItem] = Field(default_factory=list, max_length=3)
+    sources: list[DocumentSource] = Field(min_length=1, max_length=4)
 
 
 class UnavailablePresentation(PresentationModel):
@@ -122,6 +143,7 @@ class UnavailablePresentation(PresentationModel):
     reason: Literal["data_not_available"] = "data_not_available"
 
 
+# Keep the union explicit so OpenAPI and all response consumers see the new variant.
 Presentation = Annotated[
     DirectPresentation
     | BriefPresentation
@@ -129,6 +151,7 @@ Presentation = Annotated[
     | ListPresentation
     | ComparisonPresentation
     | ClarificationPresentation
-    | UnavailablePresentation,
+    | UnavailablePresentation
+    | DocumentAnalysisPresentation,
     Field(discriminator="kind"),
 ]

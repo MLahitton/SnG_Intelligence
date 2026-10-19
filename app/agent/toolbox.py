@@ -5,6 +5,8 @@ from pydantic import JsonValue, ValidationError
 
 from app.agent.contracts import (
     ComparisonArguments,
+    DocumentArguments,
+    DocumentReference,
     NoArguments,
     ProjectArguments,
     ProjectReference,
@@ -19,9 +21,21 @@ from app.agent.errors import InvalidToolCall, ToolResultTooLarge, UngroundedRefe
 from app.agent.presentation import PresentationEvidence
 from app.agent.prompt import TASK_LABELS_ES
 from app.agent.security import CredentialGuard
+from app.documents.service import DocumentAnalysisService, sources
 from app.tools import ReadTools
 
 TOOL_DEFINITIONS = (
+    ToolDefinition(
+        "analyze_project_documents",
+        "Read actual document contents, never for metadata-only questions. "
+        "Resolve projects first. "
+        "Selections: current (default), initial_handoff, all_versions "
+        "with empty IDs/null filename; "
+        "selected uses verified document IDs OR exact filename, never URLs. Maximum 4 files TOTAL "
+        "across projects. Too many/ambiguous requires clarification. compare_versions requires "
+        "official replacement links. One analysis per run; no tools inside the document model.",
+        DocumentArguments,
+    ),
     ToolDefinition(
         "get_management_snapshot",
         "Executive brief, attention and area workload: "
@@ -85,12 +99,22 @@ def _project_data(value: JsonValue) -> JsonValue:
 class ToolBox:
     """Closed dispatcher and run-local evidence ledger. Never supplied to a provider."""
 
-    def __init__(self, tools: ReadTools, guard: CredentialGuard) -> None:
+    def __init__(
+        self,
+        tools: ReadTools,
+        guard: CredentialGuard,
+        document_service: DocumentAnalysisService | None = None,
+    ) -> None:
         self._tools = tools
         self._guard = guard
         self._references: dict[str, Reference] = {}
         self._ambiguous: set[UUID] = set()
         self.presentation = PresentationEvidence()
+        self._document_service = document_service
+        self._document_called = False
+        self.document_response_type: str | None = None
+        self.document_answer: str | None = None
+        self.document_choices: set[str] = set()
 
     def _add(self, reference: Reference) -> None:
         if isinstance(reference, TaskReference):
@@ -99,7 +123,11 @@ class ToolBox:
                 update={"label": TASK_LABELS_ES.get(reference.label, "Tarea")}
             )
         identifier = (
-            reference.task_id if isinstance(reference, TaskReference) else reference.project_id
+            reference.task_id
+            if isinstance(reference, TaskReference)
+            else reference.document_id
+            if isinstance(reference, DocumentReference)
+            else reference.project_id
         )
         self._references[f"{reference.type}:{identifier}"] = reference
 
@@ -122,6 +150,17 @@ class ToolBox:
                 for identifier in arguments.project_ids
             ):
                 raise InvalidToolCall()
+            if isinstance(arguments, DocumentArguments):
+                for selection in arguments.selections:
+                    if (
+                        selection.project_id in self._ambiguous
+                        or f"project:{selection.project_id}" not in self._references
+                    ):
+                        raise InvalidToolCall()
+                    for identifier in selection.document_ids:
+                        reference = self._references.get(f"document:{identifier}")
+                        if reference is None or reference.project_id != selection.project_id:
+                            raise InvalidToolCall()
             return arguments
         except (ValidationError, ValueError):
             pass
@@ -132,7 +171,34 @@ class ToolBox:
         refs: list[Reference] = []
         data: JsonValue
         complete = True
-        if call.name == "get_management_snapshot":
+        if call.name == "analyze_project_documents" and isinstance(arguments, DocumentArguments):
+            if self._document_called:
+                raise InvalidToolCall()
+            self._document_called = True
+            service = self._document_service or DocumentAnalysisService(self._tools, self._guard)
+            outcome = await service.analyze(arguments)
+            self.document_response_type = (
+                "document_analysis" if outcome.status == "analyzed" else outcome.status
+            )
+            if outcome.status == "clarification":
+                self.document_choices = {f"document:{s.document_id}" for s in outcome.sources}
+            self.presentation.document_sources(
+                outcome.sources, clarification=outcome.status == "clarification"
+            )
+            if outcome.analysis is not None:
+                self.presentation.analyzed_documents(outcome.sources)
+                self.document_answer = outcome.analysis.answer
+                limitations = [*outcome.analysis.limitations, *outcome.limitations]
+                if limitations:
+                    self.document_answer += "\n\nLimitaciones: " + " ".join(limitations)
+            refs.extend(
+                DocumentReference(
+                    project_id=s.project_id, document_id=s.document_id, label=s.filename
+                )
+                for s in outcome.sources
+            )
+            data = outcome.model_dump(mode="json", by_alias=True)
+        elif call.name == "get_management_snapshot":
             snapshot = await self._tools.get_management_snapshot()
             self.presentation.snapshot(snapshot)
             data = snapshot.model_dump(mode="json", by_alias=True)
@@ -247,6 +313,14 @@ class ToolBox:
                 )
             elif call.name == "get_project_documents":
                 documents = await self._tools.get_project_documents(arguments.project_id)
+                evidence = sources(arguments.project_id, documents)
+                self.presentation.document_sources(evidence, clarification=True)
+                refs.extend(
+                    DocumentReference(
+                        project_id=s.project_id, document_id=s.document_id, label=s.filename
+                    )
+                    for s in evidence
+                )
                 data = documents.model_dump(mode="json", by_alias=True)
             elif call.name == "get_project_activity":
                 activity = await self._tools.get_project_activity(arguments.project_id)

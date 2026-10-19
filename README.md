@@ -203,7 +203,7 @@ el cliente, las tools o las credenciales como singleton ni suministrarlos a un L
   Excepción limitada de Voice 2C: el contexto privado Live puede retener el SecretStr
   hasta 600 s para reautorizar cada ejecución del sideband; se revoca al terminar
   la sesión. No cambia el ciclo de credenciales de chat ni voz básica.
-- `ReadOnlyTransport` impone GET, origen configurado, ocho rutas permitidas y
+- `ReadOnlyTransport` impone GET, origen configurado, rutas cerradas permitidas y
   ausencia de query/credenciales URL. Bloquea escrituras y descargas incluso si
   otro componente interno intenta construirlas. No hay API pública de HTTP arbitrario.
 - Redirects deshabilitados; cualquier 3xx es un error seguro y no se reenvía el token.
@@ -298,7 +298,7 @@ su contenido cifrado cuando está presente. No se usa Conversations ni
 contexto efímero, sin persistencia durable ni replay de tools/razonamiento anteriores.
 
 El modelo recibe la pregunta, contexto conversacional acotado si existe, los schemas
-y resultados proyectados de las ocho
+y resultados proyectados de las nueve
 tools registradas. Nunca recibe ReadTools, el cliente backend, requests, headers,
 variables de entorno o contexto de autenticación. Se omiten identidades Google,
 emails de autores/asignados y flags de modificación de los resultados. Un guard
@@ -705,7 +705,7 @@ Browser <-- WebRTC audio + captions/UI --> GPT-Live
 
 El servidor es el único ejecutor de `consult_sng_intelligence`. Responses delegation
 recibe contexto de Live y produce preguntas autocontenidas para el Agent con evidencia nueva y contexto opcional.
-Las ocho tools read-only, grounding, referencias y Presentation no se duplican ni
+Las nueve tools read-only, grounding, referencias y Presentation no se duplican ni
 se exponen directamente a Live. El browser no interpreta llamadas, no consulta
 `/live/delegate` y no envía tool outputs ni `response.create`. Ese endpoint fue eliminado.
 
@@ -846,8 +846,8 @@ y estilos TTS por responseType. Sin segundo agente ni nueva capacidad operaciona
 **Realtime Voice 2C implementado:** sideband privado, ejecución server-side y credenciales
 efímeras. Frontend autorizado actualizado para UI/captions sin relay empresarial.
 **Pendiente:** smoke real de conversación continua, turnos/interrupciones y cierre remoto.
-No hay memoria de negocio, persistencia local de conversaciones ni análisis de bytes
-documentales. Live mantiene contexto conversacional durante la sesión del proveedor;
+No hay memoria de negocio ni persistencia durable de conversaciones. Management 4B
+autoriza análisis transitorio de bytes documentales mediante el servicio aislado. Live mantiene contexto conversacional durante la sesión del proveedor;
 Agent Core no almacena memoria propia; Conversation 3A le entrega contexto opcional.
 RAG continúa fuera de alcance sin caso de uso explícito de contenido no estructurado.
 
@@ -943,7 +943,7 @@ autenticación, credenciales, `store=false`, TLS ni STT/TTS. No hay estado empre
 
 ### Snapshot gerencial
 
-`get_management_snapshot()` añade una tool cerrada al catálogo (ocho tools en total;
+`get_management_snapshot()` añade una tool cerrada al catálogo (ocho tools en 4A; nueve con 4B;
 se conservan las seis anteriores). Autoriza primero y obtiene overview y management tasks
 concurrentemente. Cancela y espera todas las lecturas pendientes ante fallo/cancelación.
 El contrato contiene:
@@ -1050,3 +1050,147 @@ En una misma conversación, con Gerencia autenticada y Backend actual:
 Comprobar también cards en móvil y «Amplía el segundo proyecto» al volver a texto.
 No guardar credenciales, audio, SDP, transcripciones ni resultados empresariales del smoke.
 Esta batería no se ejecuta automáticamente desde pytest.
+
+
+## Management Intelligence 4B — Project Document Intelligence
+
+Implementado: análisis directo, transitorio y **solo para Gerencia** de archivos obtenidos
+exclusivamente desde SnG-Control-Backend. Metadata y contenido son dos operaciones distintas.
+El Backend sigue siendo la fuente de verdad operacional y de permisos/documentos.
+
+### Flujo y selección
+
+`get_project_documents` resuelve listados, fechas, actuales/históricos y envío inicial sin bytes.
+`analyze_project_documents` es la novena tool cerrada: recibe `selections` (1–4 proyectos ya
+resueltos en el run), `question` y `compare_versions`. Cada selección exige `project_id`,
+`scope`, `document_ids` y `filename` (campos no usados: `[]`/`null`).
+
+- `current`: todos los `isCurrent` oficiales, default semántico cuando no piden históricos.
+- `initial_handoff`: exclusivamente `InitialHandoff.documentIds`, no inferidos por fechas.
+- `selected`: IDs recuperados en el run o nombre exacto tras consultar metadata.
+- `all_versions`: actuales e históricos expuestos oficialmente, solo a petición explícita.
+
+El máximo es **4 archivos en total**, también entre varios proyectos. Si hay más, se muestran
+opciones y se pide selección sin tomar cuatro arbitrariamente. Nombres duplicados requieren
+aclaración por fecha/actual/histórico/envío inicial. Comparar versiones requiere un conjunto
+conectado por `replacedByDocumentId`; el nombre por sí solo no prueba parentesco.
+
+El servicio valida metadata fresca antes de cada descarga, y vuelve a comprobarla después
+para rechazar cambios durante la operación. El único transporte de bytes es
+`SnGControlClient.download_project_document` → GET
+`/api/projects/{projectId}/documents/{documentId}/file`, con Authorization server-side,
+streaming acotado, TLS verificado, timeout existente y redirects deshabilitados.
+El Backend sirve normalmente `application/octet-stream`; extensión, metadata y firmas mínimas
+permiten verificar el formato sin confiar únicamente en ese header.
+
+### Configuración y proveedor
+
+| Variable | Default / comportamiento |
+| --- | --- |
+| `SNG_INTELLIGENCE_DOCUMENT_MODEL` | Vacío usa `SNG_INTELLIGENCE_MODEL` |
+| `SNG_INTELLIGENCE_DOCUMENT_MAX_FILE_BYTES` | 20 000 000 |
+| `SNG_INTELLIGENCE_DOCUMENT_MAX_TOTAL_BYTES` | 30 000 000 |
+| `SNG_INTELLIGENCE_DOCUMENT_PDF_DETAIL` | `auto`; admite `low`, `auto`, `high` |
+| `SNG_INTELLIGENCE_DOCUMENT_REASONING_EFFORT` | `low`; `omit` omite reasoning para modelos sin soporte |
+| `SNG_INTELLIGENCE_DOCUMENT_MAX_OUTPUT_TOKENS` | 1600; rango 256–4000 |
+
+Los límites se validan positivos, archivo <= total, y ambos <=49 000 000 bytes, deliberadamente
+por debajo del techo de 50 MB. Nunca se truncan bytes. Configuración inválida falla de forma segura
+al usar la funcionalidad; no impide que health arranque sin proveedor.
+
+`DocumentAnalysisService` está separado del Agent Core. Utiliza el SDK oficial **Responses API**,
+`input_file` con `file_data` base64 inline y nombres controlados `document-N.ext`; las imágenes
+usan `input_image`. `store=false`, resultado JSON estricto (`answer`, `source_keys`, `limitations`),
+timeout de proveedor 60 s, sin retries automáticos ni tools en esa llamada. No recibe historial,
+identidad, credential context ni credencial Google. La API key se usa solo como autenticación SDK,
+nunca como contenido. Overrides documentales no cambian el modelo de chat ni el de Live.
+
+No se utiliza Files API, file IDs durables, Conversations, `previous_response_id`, File Search,
+RAG, embeddings, vector stores, DB, extracción local ni OCR local.
+Según la [guía oficial de file inputs](https://developers.openai.com/api/docs/guides/file-inputs),
+PDF puede incluir texto e imágenes de página. `auto` queda bajo la decisión del proveedor y,
+para GPT-5.6 o posterior, puede usar `high`: **auto no garantiza bajo coste**. Configura `low`
+si necesitas evitar esa selección visual de mayor coste. El modelo elegido debe soportar
+los tipos/visión/reasoning requeridos; respuestas incompatibles se traducen a errores seguros.
+
+### Formatos y limitaciones
+
+Formatos admitidos: `.pdf`, `.doc`, `.docx`, `.rtf`, `.odt`, `.csv`, `.tsv`, `.xls`, `.xlsx`,
+`.ppt`, `.pptx`, `.txt`, `.md`, `.json`, `.xml`, `.png`, `.jpg`, `.jpeg`, `.webp`.
+
+No se analizan ejecutables, scripts, ZIP/RAR/7z ni binarios arbitrarios aunque existan como metadata.
+La inspección mínima de OOXML/ODT mira el directorio ZIP acotado y marcadores de formato;
+no extrae ni ejecuta contenido. No es un antivirus ni una garantía de legibilidad del archivo.
+No se ejecutan macros, fórmulas, scripts, enlaces ni attachments incrustados.
+
+El proveedor extrae texto de documentos no PDF; imágenes/gráficos incrustados pueden no estar
+incluidos. En spreadsheets procesa hasta las primeras 1000 filas por hoja con representación
+augmentada: **no garantiza cálculos exhaustivos ni interpretación de toda la hoja**. Esas
+limitaciones se añaden a la respuesta cuando corresponden. Archivos corruptos, cifrados o
+ilegibles pueden fallar o devolver limitaciones; nunca se inventa contenido ausente.
+Los límites previos del Agent (rondas, llamadas, tamaño de tool results y tiempo total) se conservan;
+colecciones de metadata que superen ese presupuesto fallan de forma segura, sin truncado silencioso.
+
+### Seguridad, grounding y ciclo de vida
+
+Documentos y nombres son datos no confiables. El prompt ignora instrucciones internas y solicita
+paráfrasis breves atribuidas; esto se refuerza aislando un modelo sin tools, HTTP ni credenciales de
+usuario. No se presenta el prompt como garantía absoluta contra toda manipulación de la prosa.
+Las source keys deben corresponder a archivos efectivamente analizados. IDs, filename, fecha,
+actual/histórico, envío inicial y relación de reemplazo provienen exclusivamente de metadata Backend.
+El Agent no puede reemplazar el resultado documental validado con una nueva conclusión inventada.
+La exactitud semántica de la interpretación todavía requiere comprobar el archivo en el smoke.
+
+«El documento indica que fue aprobado» es un hecho atribuido al archivo, **no** el estado operacional
+actual. Para tareas, plazos, permisos y estado actual se consulta Backend con las tools existentes.
+No se inventan páginas, riesgos actuales, relaciones entre documentos ni cifras ausentes.
+
+`DownloadedDocument` no es serializable ni tiene contenido en repr. Los buffers se mantienen solo
+durante el análisis, sin escribir a disco; se cierran y liberan referencias en éxito, error y
+cancelación. Python/SDK no garantizan zeroization física de RAM. No hay almacenamiento durable ni
+cache de análisis. Logs y errores no contienen bytes, base64, nombres, respuestas ni credenciales.
+`store=false` no es una afirmación sobre todas las políticas de retención del proveedor.
+
+### Presentation, Conversation y Live
+
+`document_analysis` presenta `project`, `relatedProjects` y `sources` verificadas, con `kind: document`,
+`documentId`, `projectId`, `filename`, `sizeBytes`, `uploadedAt`, `isCurrent`, `inInitialHandoff`
+y `replacedByDocumentId`. No bytes, URLs de archivo ni detalles del modelo. El Frontend muestra
+«Fuentes» con fecha de Colombia, estado y tamaño, y navega al detalle del proyecto; no agrega visor.
+Las listas de metadata y aclaraciones también admiten documentos. Las referencias `type: document`
+solo llevan documentId, projectId y label.
+
+Conversation 3A retiene esas referencias mínimas y la respuesta conversacional normal en su contexto
+efímero existente. No guarda archivos, base64, texto extraído completo ni análisis separado.
+Cada follow-up resuelve el referente y **vuelve a descargar/analizar** con metadata fresca.
+Live usa el mismo Agent/servicio mediante sideband y revalida Gerencia antes de cada ejecución.
+No cambia WebRTC, protocolo sideband, lifecycle de credenciales ni ejecutor del browser. El proveedor
+Live recibe solo responseType/spokenAnswer del resultado, no archivos. Texto/voz básica muestran
+fuentes estructuradas; Live conserva la experiencia de captions/voz existente.
+
+Métricas numéricas nuevas: `document_metadata_ms`, `document_download_ms`,
+`document_analysis_provider_ms`, `document_analysis_total_ms`, `documents_count`, `total_bytes`.
+No se registran IDs, filenames, contenido ni datos de usuario. Las fases no ejecutadas no se
+presentan como mediciones de latencia cero. Los tests usan archivos sintéticos y provider mocks.
+
+### Smoke real 4B preparado (manual, pendiente)
+
+Usar una cuenta de Gerencia y un proyecto real con documentos accesibles; conservar una misma
+Conversation para los follow-ups y su paso a Live. Configurar variables documentales y credenciales
+en entorno, sin imprimirlas ni guardar respuestas/archivos empresariales en el repositorio.
+No ejecutar automáticamente llamadas pagadas.
+
+1. «¿Qué documentos tiene Smoke Test Proyecto?» — metadata, cero descargas.
+2. «Resúmeme sus documentos actuales.» — solo current; >4 pide selección.
+3. «¿Qué dice <nombre-real-de-un-PDF>?» — usar nombre recuperado; duplicados piden aclaración.
+4. «¿Menciona algún requisito de vidrio?» — relectura y fuente del mismo documento.
+5. «¿Qué documentos estaban en el envío inicial?» — metadata del snapshot, cero bytes.
+6. Si existe replacement oficial: «Compara la versión anterior con la actual.»
+7. «¿Y menciona protección UV?» — no inventar si falta o no es legible.
+8. Por Live: «Resúmeme lo más importante de ese documento.» — continuidad cross-modal.
+
+Comparar la explicación con el archivo real: fuentes y filenames correctos, sin hechos inventados
+ni estados operacionales derivados del documento. Verificar navegación, todos los candidatos
+ambiguos, limpieza al cancelar y timings/byte counts sin contenido en logs. Registrar solo el
+resultado de la comprobación y métricas no sensibles, no transcripts ni dumps. Smoke real 4B
+no ejecutado por la suite offline; requiere esta revisión antes de publicar.

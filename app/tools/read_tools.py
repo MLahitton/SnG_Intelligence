@@ -7,13 +7,14 @@ from uuid import UUID
 from app.auth.management_guard import require_management
 from app.clients.sng_control import SnGControlClient, validate_project_id
 from app.contracts.analysis import ComparedProject, ManagementSnapshot
-from app.contracts.documents import ProjectDocuments
+from app.contracts.documents import Document, ProjectDocuments
 from app.contracts.management import AttentionItem, ManagementOverview, ManagementTask
 from app.contracts.notifications import ProjectNotification
 from app.contracts.presentation import Coverage
 from app.contracts.projects import ProjectCandidate, ProjectDetails
 from app.core.errors import InvalidArguments, ManagementRequired
 from app.core.latency import measure
+from app.documents.download import DownloadedDocument
 
 
 class ReadTools:
@@ -191,7 +192,17 @@ class ReadTools:
     async def get_project_documents(self, project_id: UUID | str) -> ProjectDocuments:
         identifier = validate_project_id(project_id)
         await self._authorize()
-        return await self._client.list_project_documents(identifier)
+        with measure("document_metadata_ms"):
+            return await self._client.list_project_documents(identifier)
+
+    async def _download_document(
+        self, project_id: UUID, metadata: Document, max_bytes: int
+    ) -> DownloadedDocument:
+        await self._authorize()
+        with measure("document_download_ms"):
+            return await self._client.download_project_document(
+                project_id, metadata.id, metadata=metadata, max_bytes=max_bytes
+            )
 
     async def get_project_activity(self, project_id: UUID | str) -> list[ProjectNotification]:
         identifier = validate_project_id(project_id)

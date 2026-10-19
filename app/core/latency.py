@@ -10,6 +10,12 @@ from time import perf_counter
 from typing import Literal
 
 Metric = Literal[
+    "document_metadata_ms",
+    "document_download_ms",
+    "document_analysis_provider_ms",
+    "document_analysis_total_ms",
+    "documents_count",
+    "total_bytes",
     "conversation_context_turns",
     "conversation_context_chars",
     "management_revalidation_ms",

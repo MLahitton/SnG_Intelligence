@@ -303,6 +303,7 @@ async def test_empty_model_turn_is_invalid(mock_backend):
 
 def test_registered_tools_are_explicit_and_schemas_are_closed():
     assert {t.name for t in TOOL_DEFINITIONS} == {
+        "analyze_project_documents",
         "get_management_snapshot",
         "compare_projects",
         "get_management_overview",

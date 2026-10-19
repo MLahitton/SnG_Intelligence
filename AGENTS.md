@@ -883,7 +883,7 @@ When a requested implementation conflicts with one of these rules, stop that spe
   the model configurable; provider availability must not prevent health startup.
 - `GET /api/projects` is now allowed solely for the closed read-only project search.
   Do not add arbitrary HTTP tools or broaden the transport to other methods.
-- Only the eight explicitly registered tools (including Management 4A composites) are visible to the model. Validate all
+- Only the nine explicitly registered tools (including Management 4A composites and 4B analysis) are visible to the model. Validate all
   tool arguments and the whole requested batch before execution; enforce bounded
   rounds, calls, execution time and payload size. Never truncate silently.
 - Chats without conversationId are independent. Conversation 3A explicitly permits
@@ -1054,3 +1054,51 @@ small adapters; model/voice configuration is server-owned and never supplied by 
    normally 2–4 spoken sentences; no independently generated extra spoken facts.
 8. Numeric snapshot/comparison timings only. Offline evals are scripted protocol tests,
    not proof of real provider quality, latency or paid-smoke approval.
+
+
+## Management Intelligence 4B — explicit document-content authorization
+
+1. Metadata remains the default for listings, dates, current/historical and initial handoff.
+   Download bytes only for explicit content questions. Operational comparisons remain metadata-only.
+2. The only new outbound route is authenticated GET
+   `/api/projects/{projectId}/documents/{documentId}/file`. No URLs, redirects, storage/DB access,
+   uploads or browser file relay. Official fresh metadata must validate project/document membership
+   before download. Recheck selected metadata after download to reject changed/unavailable files.
+3. `DocumentAnalysisService` owns selection, bounded streaming, minimal type checks, provider
+   invocation and cleanup. Agent Core handles neither files nor base64. Document bytes use a private,
+   non-serializable buffer holder, never public Pydantic/JSON/repr/logs. No disk writes or durable
+   file objects; release references on completion/error/cancellation. Python does not guarantee
+   physical RAM zeroization. Standard TLS, fixed origin, timeouts and credential isolation remain.
+4. Scopes are current (default), initial_handoff (official snapshot IDs), selected and all_versions.
+   At most four files TOTAL across projects, 20 MB each and 30 MB total by default; configured caps
+   cannot reach 50 MB. Excess count asks for selection, no arbitrary subset. Excess bytes are never
+   truncated. Duplicate filenames require clarification; version comparison requires official
+   replacement links, never just equal names. Existing bounded Agent payload/round limits still apply.
+5. Support PDF; DOC/DOCX/RTF/ODT; CSV/TSV/XLS/XLSX; PPT/PPTX; TXT/MD/JSON/XML;
+   PNG/JPG/JPEG/WEBP with minimal extension/MIME/signature checks. OOXML directory inspection is
+   bounded and does not extract entries. This is not antivirus validation. Never execute macros,
+   formulas, scripts, links or embedded attachments; no local OCR/content parsers.
+6. The isolated document model receives only the external validated question, controlled filenames,
+   bounded file inputs and minimal source catalog. NO tools, auth context, Google credential,
+   subject, backend URL, sideband state or conversation history. Use official Responses input_file
+   with inline base64 (input_image for images), store=false, strict result schema. No Files API,
+   provider file IDs, File Search, vectors, RAG, DB or provider conversations. Models/configuration
+   are server-owned; document overrides must not affect normal chat or Live model settings.
+7. Documents are untrusted data, never instructions. The prompt explicitly rejects embedded
+   instructions; the architectural boundary removes tool/HTTP/execution/credential capabilities.
+   Prompts are not proof that all prose is immune to injection. Validate source keys against files
+   actually analyzed, then build public metadata only from Backend. Do not fabricate pages/IDs.
+8. Attribute document claims and paraphrase; short quotations only when requested. Content may be
+   historical and never overrides current workflow/task/deadline/permission state. Only Backend
+   owns operational facts. Document-model prose is not a new operational source of truth.
+9. Keep document references minimal (type, documentId, projectId, label) in Conversation 3A.
+   Only the normal short answer plus references may survive in existing ephemeral context;
+   no full extracted text, bytes, base64 or separate analysis cache. Re-fetch/re-analyze next turn.
+   Live delegates through the same Agent; no change to WebRTC, sideband or credential lifecycles.
+10. Public `document_analysis` presentation exposes project(s) and cited file metadata only.
+    Frontend shows sources and project links, not a file viewer. TTS shares deterministic rendering.
+11. Telemetry is numeric: document_metadata_ms, document_download_ms,
+    document_analysis_provider_ms, document_analysis_total_ms, documents_count, total_bytes.
+    Never names, document/project IDs, bytes, questions or analysis in logs.
+12. Offline tests cover scopes, limits, auth/download, SDK wire inputs, safe errors, grounding,
+    buffer cleanup, context and Live. Real paid smoke is explicit and manual, not a pytest fixture.

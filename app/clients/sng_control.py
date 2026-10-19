@@ -5,7 +5,7 @@ import httpx
 from pydantic import SecretStr, TypeAdapter, ValidationError
 
 from app.contracts.auth import CurrentUser
-from app.contracts.documents import ProjectDocuments
+from app.contracts.documents import Document, ProjectDocuments
 from app.contracts.management import ManagementOverview, ManagementTask
 from app.contracts.notifications import ProjectNotification
 from app.contracts.projects import Project, ProjectTask
@@ -20,6 +20,8 @@ from app.core.errors import (
     ResourceNotFound,
 )
 from app.core.latency import BackendOperation, backend_timing
+from app.documents.download import DownloadedDocument
+from app.documents.errors import DocumentTooLarge, DocumentUnavailable
 
 
 def validate_project_id(project_id: UUID | str) -> UUID:
@@ -148,3 +150,88 @@ class SnGControlClient:
             TypeAdapter(list[ProjectNotification]),
             "notifications",
         )
+
+    async def download_project_document(
+        self,
+        project_id: UUID | str,
+        document_id: UUID | str,
+        *,
+        metadata: Document,
+        max_bytes: int,
+    ) -> DownloadedDocument:
+        """Closed streaming read. Metadata comes from an authenticated official listing."""
+        from email.message import Message
+
+        project, document = validate_project_id(project_id), validate_project_id(document_id)
+        if document != metadata.id or max_bytes <= 0 or max_bytes > 49_000_000:
+            raise InvalidArguments()
+        if metadata.size_bytes < 0 or metadata.size_bytes > max_bytes:
+            raise DocumentTooLarge()
+        if self._token is None:
+            raise AuthenticationRequired()
+        request = self._http.build_request(
+            "GET",
+            f"/api/projects/{project}/documents/{document}/file",
+            headers={
+                "Authorization": f"Bearer {self._token.get_secret_value()}",
+                "X-Request-ID": str(self._request_id),
+                "Accept": "application/octet-stream",
+                "Accept-Encoding": "identity",
+            },
+        )
+        response: httpx.Response | None = None
+        buffer = bytearray()
+        error: IntelligenceError | None = None
+        try:
+            response = await self._http.send(request, stream=True, follow_redirects=False)
+            statuses: dict[int, type[IntelligenceError]] = {
+                401: AuthenticationRequired,
+                403: ManagementRequired,
+                404: DocumentUnavailable,
+                410: DocumentUnavailable,
+                429: BackendUnavailable,
+            }
+            if response.status_code in statuses:
+                raise statuses[response.status_code]()
+            if response.status_code != 200:
+                raise BackendResponseError()
+            if response.headers.get("content-encoding", "identity") != "identity":
+                raise BackendResponseError()
+            length = response.headers.get("content-length")
+            if length is not None:
+                if not length.isdecimal() or len(length) > 20:
+                    raise BackendResponseError()
+                if int(length) > max_bytes:
+                    raise DocumentTooLarge()
+                if int(length) != metadata.size_bytes:
+                    raise DocumentUnavailable()
+            disposition = response.headers.get("content-disposition")
+            if disposition:
+                header = Message()
+                header["content-disposition"] = disposition
+                if header.get_filename() != metadata.original_file_name:
+                    raise DocumentUnavailable()
+            async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
+                if len(buffer) + len(chunk) > max_bytes:
+                    raise DocumentTooLarge()
+                buffer.extend(chunk)
+            if len(buffer) != metadata.size_bytes:
+                raise DocumentUnavailable()
+            return DownloadedDocument(
+                project,
+                document,
+                metadata.original_file_name,
+                metadata.content_type or "application/octet-stream",
+                bytes(buffer),
+            )
+        except httpx.TimeoutException:
+            error = BackendTimeout()
+        except httpx.RequestError:
+            error = BackendUnavailable()
+        finally:
+            request.headers.pop("Authorization", None)
+            buffer.clear()
+            if response is not None:
+                await response.aclose()
+        assert error is not None
+        raise error

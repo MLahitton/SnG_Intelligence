@@ -12,6 +12,8 @@ from app.contracts.presentation import (
     ComparisonPresentation,
     Coverage,
     DirectPresentation,
+    DocumentAnalysisPresentation,
+    DocumentSource,
     ListPresentation,
     Metric,
     Presentation,
@@ -28,7 +30,7 @@ AREA_LABELS_ES = {"Budgets": "Presupuestos", "Commercial": "Comercial"}
 
 class PresentationEvidence:
     def __init__(self) -> None:
-        self.items: dict[str, ProjectItem | TaskItem | Metric | AreaItem] = {}
+        self.items: dict[str, ProjectItem | TaskItem | Metric | AreaItem | DocumentSource] = {}
         self.names: set[str] = set()
         self._details: dict[str, list[TaskItem]] = {}
         self._candidate_groups: list[set[str]] = []
@@ -37,6 +39,32 @@ class PresentationEvidence:
         self._attention_order: list[str] = []
         self._attention_coverage: Coverage | None = None
         self._tasks_coverage: Coverage | None = None
+        self._document_choices: list[set[str]] = []
+        self._analysis_sources: list[str] = []
+        self._analysis_projects: list[str] = []
+
+    def document_sources(
+        self, sources: list[DocumentSource], *, clarification: bool = False
+    ) -> None:
+        keys = set()
+        for source in sources:
+            key = f"document:{source.document_id}"
+            previous = self.items.get(key)
+            if isinstance(previous, DocumentSource) and previous.project_id != source.project_id:
+                raise UngroundedReference()
+            # Later metadata reads must not silently relabel the bytes already analyzed.
+            if key in self._analysis_sources and previous != source:
+                raise UngroundedReference()
+            self.items[key] = source
+            self.names.add(source.filename)
+            keys.add(key)
+        if clarification:
+            self._document_choices.append(keys)
+
+    def analyzed_documents(self, sources: list[DocumentSource]) -> None:
+        self.document_sources(sources)
+        self._analysis_sources = [f"document:{source.document_id}" for source in sources]
+        self._analysis_projects = list(dict.fromkeys(f"project:{s.project_id}" for s in sources))
 
     def project(self, item: ProjectItem) -> None:
         self.items[f"project:{item.project_id}"] = item
@@ -194,10 +222,33 @@ class PresentationEvidence:
             raise UngroundedReference()
         items = [self.items[key] for key in keys]
         projects = [item for item in items if isinstance(item, ProjectItem)]
-        entities = [item for item in items if isinstance(item, (ProjectItem, TaskItem))]
+        entities = [
+            item for item in items if isinstance(item, (ProjectItem, TaskItem, DocumentSource))
+        ]
+        documents = [item for item in items if isinstance(item, DocumentSource)]
         metrics = [item for item in items if isinstance(item, Metric)]
         areas = [item for item in items if isinstance(item, AreaItem)]
         match response_type:
+            case "document_analysis" if self._analysis_sources and set(keys) == set(
+                self._analysis_sources
+            ):
+                selected_projects = [self.items.get(key) for key in self._analysis_projects]
+                if not all(isinstance(project, ProjectItem) for project in selected_projects):
+                    raise UngroundedReference()
+                verified = [p for p in selected_projects if isinstance(p, ProjectItem)]
+                return DocumentAnalysisPresentation(
+                    project=verified[0],
+                    related_projects=verified[1:],
+                    sources=[
+                        s
+                        for key in self._analysis_sources
+                        if isinstance(s := self.items[key], DocumentSource)
+                    ],
+                )
+            case "clarification" if documents and len(items) == len(documents):
+                if set(keys) not in self._document_choices:
+                    raise UngroundedReference()
+                return ClarificationPresentation(candidates=[], documents=documents)
             case "direct" if len(items) == len(metrics) <= 1:
                 return DirectPresentation(metric=metrics[0] if metrics else None)
             case "unavailable" if not items:

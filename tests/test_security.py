@@ -129,6 +129,7 @@ def test_public_client_and_tool_surfaces_are_closed():
         "list_project_documents",
         "list_project_notifications",
         "clear_credentials",
+        "download_project_document",
     }
 
 

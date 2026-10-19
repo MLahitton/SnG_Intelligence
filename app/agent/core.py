@@ -7,7 +7,11 @@ from app.agent.errors import AgentLimitExceeded, InvalidModelResponse, InvalidTo
 from app.agent.rendering import render_answer
 from app.agent.security import CredentialGuard
 from app.agent.toolbox import TOOL_DEFINITIONS, ToolBox
-from app.contracts.presentation import ComparisonPresentation, ProjectPresentation
+from app.contracts.presentation import (
+    ComparisonPresentation,
+    DocumentAnalysisPresentation,
+    ProjectPresentation,
+)
 from app.conversation.context import ConversationContext, check_context_text
 from app.core.latency import agent_latency, count, measure
 
@@ -79,10 +83,24 @@ class Agent:
                 # then render both surfaces from the same content and evidence.
                 if turn.answer.spoken_answer != turn.answer.answer:
                     raise InvalidModelResponse()
+                if (
+                    self._tools.document_response_type is not None
+                    and turn.answer.response_type != self._tools.document_response_type
+                ):
+                    raise InvalidModelResponse()
+                if (
+                    self._tools.document_choices
+                    and set(turn.answer.presentation_keys) != self._tools.document_choices
+                ):
+                    raise InvalidModelResponse()
                 presentation = self._tools.presentation.build(
                     turn.answer.response_type, turn.answer.presentation_keys
                 )
                 content = turn.answer.answer
+                if isinstance(presentation, DocumentAnalysisPresentation):
+                    if self._tools.document_answer is None:
+                        raise InvalidModelResponse()
+                    content = self._tools.document_answer
                 if isinstance(presentation, ProjectPresentation):
                     name = presentation.project.project_name
                     if not content.startswith(name):
@@ -95,6 +113,15 @@ class Agent:
                     reference_keys = [
                         f"project:{item.project.project_id}" for item in presentation.projects
                     ] + reference_keys
+                if isinstance(presentation, DocumentAnalysisPresentation):
+                    reference_keys = (
+                        [f"document:{s.document_id}" for s in presentation.sources]
+                        + [
+                            f"project:{p.project_id}"
+                            for p in [presentation.project, *presentation.related_projects]
+                        ]
+                        + reference_keys
+                    )
                 response = ChatResponse(
                     response_type=turn.answer.response_type,
                     answer=answer,
