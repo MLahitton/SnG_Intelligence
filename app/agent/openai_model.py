@@ -59,12 +59,14 @@ class OpenAIModel:
     async def respond(
         self, messages: tuple[ModelMessage, ...], tools: tuple[ToolDefinition, ...]
     ) -> ModelTurn:
-        if len(messages) == 1 and messages[0].role == "user":
+        if not any(message.calls for message in messages):
             self._replay.clear()
         wire: ResponseInputParam = []
         for message in messages:
-            if message.role == "user":
-                wire.append({"role": "user", "content": message.content})
+            if message.role in ("user", "developer"):
+                wire.append({"role": message.role, "content": message.content})
+            elif message.role == "assistant" and not message.calls:
+                wire.append({"role": "assistant", "content": message.content})
             elif message.role == "tool":
                 wire.append(
                     {

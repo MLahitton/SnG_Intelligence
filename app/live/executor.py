@@ -11,6 +11,7 @@ from app.agent.core import Agent
 from app.agent.security import CredentialGuard
 from app.agent.toolbox import ToolBox
 from app.clients.sng_control import SnGControlClient
+from app.conversation.context import ConversationContext
 from app.live.credentials import LiveCredentialContext
 from app.live.model import configured_live_agent_model
 from app.tools import ReadTools
@@ -31,7 +32,9 @@ class LiveAgentExecutor:
         self._credentials = credentials
         self._model_factory = model_factory
 
-    async def run(self, session_id: str, question: str) -> ChatResponse:
+    async def run(
+        self, session_id: str, question: str, context: ConversationContext | None = None
+    ) -> ChatResponse:
         lease = self._credentials._get(session_id)
         client = SnGControlClient(self._http, lease.token, uuid4())
         guard = CredentialGuard(lease.token, SecretStr(os.environ.get("OPENAI_API_KEY", "")))
@@ -41,7 +44,9 @@ class LiveAgentExecutor:
                 self._credentials._get(session_id)
                 async with self._model_factory() as model:
                     self._credentials._get(session_id)
-                    result = await Agent(model, ToolBox(tools, guard), guard, {}).run(question)
+                    result = await Agent(model, ToolBox(tools, guard), guard, {}).run(
+                        question, context
+                    )
                     self._credentials._get(session_id)
                     guard.check(result.model_dump_json())
                     return result

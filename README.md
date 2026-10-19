@@ -118,7 +118,7 @@ valida la sesión y determina los permisos. No se cachea esa decisión.
 |---|---|
 | `GET /health` | `{"status":"ok"}`. Sin token y sin consultar SnG Control. Liveness del proceso. |
 | `GET /api/intelligence/session` | Valida sesión y Gerencia; devuelve únicamente `{"authenticated":true,"isManagement":true}`. |
-| `POST /api/intelligence/chat` | Consulta independiente: `responseType`, `answer`, `spokenAnswer`, `references`, `presentation`. |
+| `POST /api/intelligence/chat` | Consulta con conversationId opcional: `responseType`, `answer`, `spokenAnswer`, `references`, `presentation`. |
 | `POST /api/intelligence/voice/transcribe` | Audio multipart → `transcript`. |
 | `POST /api/intelligence/voice` | Audio multipart → mismo contrato semántico de chat más `transcript`, usando Agent Core. |
 | `POST /api/intelligence/voice/speech` | JSON `text` y `responseType` opcional → bytes MP3 inline. |
@@ -175,7 +175,8 @@ lugar de las coincidencias parciales/auxiliares. Varios nombres exactos iguales 
 siendo ambiguos. Nunca se selecciona arbitrariamente la primera coincidencia.
 Varios candidatos se señalan como ambiguos; dentro de esa ejecución no se permite
 consultar detalles de uno de esos candidatos arbitrariamente. El usuario puede precisar
-su siguiente pregunta, que será una ejecución independiente.
+su siguiente pregunta. Con conversationId puede usar el contexto anterior para identificar
+el referente; la evidencia de cada ejecución sigue siendo nueva.
 
 Los flags documentales como `canModify` son información recibida; no habilitan
 acciones en Intelligence. No se consumen `/file`, `current.zip` ni `initial-handoff.zip`.
@@ -242,9 +243,9 @@ Content-Type: application/json
 {"message":"¿Qué debería preocuparme hoy?"}
 ```
 
-Solo se acepta `message`, un string no vacío de hasta 4000 caracteres. Se rechazan
-campos adicionales como token, email, subject, role, isManagement, history o
-conversationId. El guard de Gerencia se ejecuta antes de usar el proveedor, incluso
+Se acepta `message`, un string no vacío de hasta 4000 caracteres, y opcionalmente
+`conversationId`, generado antes por POST /conversation. Se rechazan campos como
+token, email, subject, role, isManagement o history. El guard de Gerencia se ejecuta antes de usar el proveedor, incluso
 si este no está configurado. `/health` y `/session` funcionan sin configuración LLM.
 
 La respuesta pública es:
@@ -293,10 +294,11 @@ mensajes a `function_call` y `function_call_output`, enlazados por `call_id`, y
 configura la respuesta final mediante `text.format`. Los elementos de razonamiento
 del proveedor se reenvían entre rondas solo en memoria durante ese request, incluido
 su contenido cifrado cuando está presente. No se usa Conversations ni
-`previous_response_id`; cada request de chat es independiente, sin persistencia
-de conversaciones.
+`previous_response_id`. Sin conversationId el chat es independiente; con ID recibe
+contexto efímero, sin persistencia durable ni replay de tools/razonamiento anteriores.
 
-El modelo solo recibe la pregunta, los schemas y resultados proyectados de las seis
+El modelo recibe la pregunta, contexto conversacional acotado si existe, los schemas
+y resultados proyectados de las seis
 tools registradas. Nunca recibe ReadTools, el cliente backend, requests, headers,
 variables de entorno o contexto de autenticación. Se omiten identidades Google,
 emails de autores/asignados y flags de modificación de los resultados. Un guard
@@ -368,8 +370,8 @@ label null, sin inventar su significado ni cambiar el valor original en evidence
 sin adivinar cuál es la actual. El nombre oficial abre la respuesta incluso si se
 resolvió por SG. `clarification` incluye todos los candidatos de una búsqueda ambigua,
 o una lista vacía si falta identificación. No permite presentar solo el primer candidato.
-En chat y fallback no hay memoria: otra llamada con «El primero» no tiene contexto
-garantizado; hay que
+En chat con conversationId, «El primero» puede resolverse usando referencias ordenadas
+del historial reciente. Sin ID y en voz básica no hay contexto garantizado; hay que
 volver a indicar el nombre/datos que desambigüen.
 
 ### answer y spokenAnswer
@@ -702,7 +704,7 @@ Browser <-- WebRTC audio + captions/UI --> GPT-Live
 ```
 
 El servidor es el único ejecutor de `consult_sng_intelligence`. Responses delegation
-recibe contexto de Live y produce preguntas autocontenidas para el Agent stateless.
+recibe contexto de Live y produce preguntas autocontenidas para el Agent con evidencia nueva y contexto opcional.
 Las seis tools read-only, grounding, referencias y Presentation no se duplican ni
 se exponen directamente a Live. El browser no interpreta llamadas, no consulta
 `/live/delegate` y no envía tool outputs ni `response.create`. Ese endpoint fue eliminado.
@@ -846,7 +848,7 @@ efímeras. Frontend autorizado actualizado para UI/captions sin relay empresaria
 **Pendiente:** smoke real de conversación continua, turnos/interrupciones y cierre remoto.
 No hay memoria de negocio, persistencia local de conversaciones ni análisis de bytes
 documentales. Live mantiene contexto conversacional durante la sesión del proveedor;
-Agent Core continúa siendo stateless.
+Agent Core no almacena memoria propia; Conversation 3A le entrega contexto opcional.
 RAG continúa fuera de alcance sin caso de uso explícito de contenido no estructurado.
 
 Referencias OpenAI: [function calling](https://developers.openai.com/api/docs/guides/function-calling)
@@ -861,3 +863,73 @@ privado ligado a esa ejecución, que se invalida al salir. No hay cache entre tu
 `find_projects` ejecuta en paralelo las dos lecturas independientes y cancela la hermana
 ante error/cancelación. Chat y fallback conservan sus comprobaciones por tool.
 No se cambió el modelo seleccionado ni se configuró VAD de Realtime en GPT-Live.
+
+
+## Conversation 3A — contexto efímero unificado
+
+Implementado para texto y GPT-Live de la misma identidad de Gerencia. Backend sigue
+siendo la autoridad operacional. **Smoke real cross-modal aprobado por el usuario**.
+Los escenarios scripted offline verifican protocolo/grounding/lifecycle; complementan
+la validación real y no sustituyen la evaluación del proveedor.
+
+```text
+                ConversationStore (context-only)
+                     /                  \
+                   Chat              GPT-Live session.input
+                     |                  sideband
+                     +-------- Agent Core --------+
+                                  |
+                           read-only tools
+                                  |
+                         SnG-Control-Backend
+```
+
+- `POST /api/intelligence/conversation`, body `{}`, devuelve 201 con
+  `{conversationId, expiresAt}`. ID opaco generado por servidor; nunca subject desde browser.
+- `POST /api/intelligence/conversation/close`, body `{conversationId}`, devuelve `{closed:true}`.
+  Valida Gerencia/ownership y cierra Live asociado. Cierre repetido conserva hasta 128
+  tombstones de ownership, sin historial; IDs desconocidos/expirados no se reutilizan.
+- Chat y `live/session` aceptan opcionalmente `conversationId`; sus respuestas no cambian.
+  Sin ID mantienen compatibilidad independiente. No se crea una conversación implícita.
+- Configuración: `SNG_INTELLIGENCE_CONVERSATION_TTL_SECONDS=1800`, rango 1..3600 segundos.
+  TTL absoluto desde creación, sin extensión por actividad/reconexión. La credencial Live
+  conserva su límite separado de 600 segundos y reautorización antes de cada Agent.run.
+- Límites: 128 conversaciones por proceso, 3 por subject, 16 turnos completos, 16000
+  caracteres del contexto renderizado (incluye referencias/instrucción fija). Se eliminan
+  turnos antiguos completos; un turno que solo exceda el presupuesto también se descarta.
+  No hay resúmenes LLM. Hasta 8 operaciones activas/en espera por conversación.
+- Referentes: orden de referencias verificadas y mensajes previos; no hay resolver paralelo
+  ni proyecto activo inferido por regex. «El segundo», «ese proyecto» o «sus documentos»
+  pueden resolverse con ese contexto, pero el estado actual vuelve a consultarse mediante tools.
+- Grounding: ToolBox/evidence nuevos por ejecución. Los IDs históricos no son evidence keys.
+  Con historial no vacío se rechaza una respuesta factual sin lectura actual; una respuesta
+  sin tools debe ser clarification/unavailable. No se reenvía razonamiento ni tool output viejo.
+- Texto → Live: `session.input` oficial, mensajes user/input_text y assistant/output_text,
+  con instrucción estática context-only y metadata mínima ordenada. No historial en instructions.
+  La proyección inicial Live descarta turnos antiguos completos hasta 6000 bytes UTF-8
+  de contenido, reservando margen para framing dentro del presupuesto de input del proveedor.
+  [Contrato oficial Live](https://developers.openai.com/api/reference/resources/live/methods/create).
+- Voz → texto: solo delegaciones empresariales completadas, pregunta autocontenida + spokenAnswer
+  + referencias verificadas, antes de function_call_output; deduplicación existente por callId.
+  Captions parciales y conversación casual sin delegación no forman historial compartido.
+- Lifecycle: lock por conversación; close/expiry cancela operaciones, borra turnos y cierra
+  sideband/credenciales. Live close conserva contexto y permite reiniciar voz con el mismo ID.
+  Attach fallido revoca credenciales y elimina el binding, sin borrar la conversación válida.
+  Cierre remoto sigue siendo best-effort; no se garantiza bajo fallo de red.
+- Frontend: ID y mensajes en memoria React del panel montado dentro de AppShell; cerrar el
+  panel conserva texto/contexto, libera audio y captions. Navegación interna conserva ID.
+  Nueva conversación cierra Live/contexto anterior y limpia UI. Logout/cambio de subject
+  aborta requests y cierra best-effort con identidad original. Texto bloqueado durante Live.
+  Reload completo pierde continuidad; la conversación abandonada caduca en el servidor.
+- Voz básica `/voice`, `/voice/transcribe`, `/voice/speech` sigue independiente y sin historial.
+  No se presenta como continuidad cross-modal; el modo básico lo indica explícitamente.
+- Seguridad: no se guardan Google tokens/API keys, SDP, audio, tool outputs, reasoning ni
+  Presentation. Guards de credenciales actuales y rechazo de envelopes reconocibles antes de
+  retener contexto. No hay endpoint público de historial ni credenciales. No logs de contenido.
+- Performance: no llamadas LLM adicionales para gestionar memoria. Telemetría numérica
+  `conversation_context_turns` y `conversation_context_chars`; Live conserva `agent_total_ms`.
+  El historial acotado aumenta el input del proveedor: su impacto real debe medirse en smoke.
+
+Es memoria de una sola instancia: **reiniciar el servidor pierde conversaciones**. Despliegue
+3A usa un proceso/worker; no se comparte estado entre workers/réplicas. No hay DB/Redis,
+archivos, almacenamiento del navegador, RAG, LangGraph ni aprendizaje de preferencias.

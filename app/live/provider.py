@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, SecretStr, ValidationError
 
 from app.agent.errors import ProviderConfigurationError, ProviderRateLimited, ProviderTimeout
 from app.agent.security import CredentialGuard
+from app.conversation.context import CONTEXT_RULE, ConversationContext
 from app.core.errors import IntelligenceError
 from app.live.config import MAX_PROVIDER_BYTES, LiveSettings
 from app.live.contracts import LiveSessionResponse, OpaqueId
@@ -24,7 +25,7 @@ CREATE_URL = "https://api.openai.com/v1/live/sessions"
 def session_config(settings: LiveSettings) -> dict[str, object]:
     return {
         "model": settings.model,
-        "instructions": LIVE_INSTRUCTIONS,
+        "instructions": LIVE_INSTRUCTIONS + "\n" + CONTEXT_RULE,
         "audio": {"output": {"voice": settings.voice}},
         "store": False,
         # Frontend has lifecycle/UI only; private sideband owns tools and continuation.
@@ -58,7 +59,7 @@ def session_config(settings: LiveSettings) -> dict[str, object]:
             "type": "responses",
             "responses": {
                 "model": settings.delegation_model,
-                "instructions": DELEGATION_INSTRUCTIONS,
+                "instructions": DELEGATION_INSTRUCTIONS + "\n" + CONTEXT_RULE,
                 "tools": [consultation_tool()],
                 "tool_choice": "auto",
                 "parallel_tool_calls": False,
@@ -107,9 +108,14 @@ class OpenAILiveProvider:
             session_id
         )
 
-    async def create(self, sdp: str) -> LiveSessionResponse:
+    async def create(
+        self, sdp: str, context: ConversationContext | None = None
+    ) -> LiveSessionResponse:
+        session = session_config(self._settings)
+        if context is not None and context.turns:
+            session["input"] = context.live_input()
         payload = {
-            "session": session_config(self._settings),
+            "session": session,
             "transport": {"type": "webrtc", "sdp": sdp},
         }
         guard = CredentialGuard(self._key)

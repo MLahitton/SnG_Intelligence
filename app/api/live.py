@@ -9,9 +9,12 @@ from starlette.types import Message
 
 from app.agent.errors import ProviderTimeout
 from app.agent.security import CredentialGuard
+from app.api.conversation import get_conversations
 from app.api.dependencies import get_credential_guard, get_management_identity
 from app.auth.management_guard import extract_bearer
 from app.contracts.auth import CurrentUser
+from app.conversation.context import ConversationContext
+from app.conversation.store import ConversationStore
 from app.live.config import MAX_BODY_BYTES, LiveSettings
 from app.live.contracts import (
     LiveCloseRequest,
@@ -98,11 +101,39 @@ async def live_session(
     provider: Annotated[LiveSessionProvider, Depends(get_live_provider)],
     guard: Annotated[CredentialGuard, Depends(get_credential_guard)],
 ) -> LiveSessionResponse:
+    store = get_conversations(request)
+    if body.conversation_id is None:
+        return await _create_live(
+            body, request, identity, settings, registry, provider, guard, store
+        )
+    async with store.operation(body.conversation_id, identity.subject) as context:
+        for message in context.messages():
+            guard.check(message.content)
+        return await _create_live(
+            body, request, identity, settings, registry, provider, guard, store, context
+        )
+
+
+async def _create_live(
+    body: LiveSessionRequest,
+    request: Request,
+    identity: CurrentUser,
+    settings: LiveSettings,
+    registry: LiveRegistry,
+    provider: LiveSessionProvider,
+    guard: CredentialGuard,
+    store: ConversationStore,
+    context: ConversationContext | None = None,
+) -> LiveSessionResponse:
     guard.check(body.sdp)
     guard.check(identity.subject)
     # Reserve before awaiting network I/O so concurrent creates cannot exceed the cap.
     with registry.reserve(identity.subject):
-        result = await provider.create(body.sdp)
+        result = (
+            await provider.create(body.sdp)
+            if context is None
+            else await provider.create(body.sdp, context)
+        )
         guard.check(result.model_dump_json())
         registry.add(result.session_id, identity.subject, settings.lifetime_seconds)
         credentials = cast(LiveCredentialContext, request.app.state.live_credentials)
@@ -114,10 +145,14 @@ async def live_session(
                 identity.subject,
                 registry.owned(result.session_id, identity.subject).expires_at,
             )
+            if body.conversation_id is not None:
+                store.bind_live(result.session_id, body.conversation_id, identity.subject)
             await manager.attach(
                 result.session_id, identity.subject, provider, str(request.state.request_id)
             )
         except BaseException:
+            await asyncio.shield(manager.close_internal(result.session_id))
+            store.detach_live(result.session_id)
             credentials.revoke(result.session_id)
             registry.discard(result.session_id)
             raise

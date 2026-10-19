@@ -160,6 +160,8 @@ def test_only_explicit_routes_no_cors_or_proxy(settings, mock_backend):
         ("/health", "get"),
         ("/api/intelligence/session", "get"),
         ("/api/intelligence/chat", "post"),
+        ("/api/intelligence/conversation", "post"),
+        ("/api/intelligence/conversation/close", "post"),
         ("/api/intelligence/voice", "post"),
         ("/api/intelligence/voice/transcribe", "post"),
         ("/api/intelligence/voice/speech", "post"),

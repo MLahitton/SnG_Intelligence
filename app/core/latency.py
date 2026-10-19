@@ -10,6 +10,8 @@ from time import perf_counter
 from typing import Literal
 
 Metric = Literal[
+    "conversation_context_turns",
+    "conversation_context_chars",
     "management_revalidation_ms",
     "agent_total_ms",
     "agent_model_ms",

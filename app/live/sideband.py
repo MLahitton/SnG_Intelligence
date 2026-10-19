@@ -8,6 +8,8 @@ from typing import Protocol
 
 from app.agent.contracts import ChatResponse
 from app.agent.errors import ProviderConfigurationError, ProviderRateLimited, ProviderTimeout
+from app.conversation.context import ConversationContext, ConversationTurn
+from app.conversation.store import ConversationStore
 from app.core.errors import IntelligenceError
 from app.core.latency import LatencyMetrics, latency_scope
 from app.live.credentials import LiveCredentialContext
@@ -28,7 +30,9 @@ from app.live.sideband_transport import SidebandConnector, SidebandTransport
 
 
 class AgentExecutor(Protocol):
-    async def run(self, session_id: str, question: str) -> ChatResponse: ...
+    async def run(
+        self, session_id: str, question: str, context: ConversationContext | None = None
+    ) -> ChatResponse: ...
 
 
 @dataclass(slots=True, repr=False)
@@ -66,9 +70,11 @@ class LiveSidebandManager:
         credentials: LiveCredentialContext,
         executor: AgentExecutor,
         *,
+        conversations: ConversationStore | None = None,
         close_grace: float = 1.0,
         tool_timeout: float = 120.0,
     ) -> None:
+        self._conversations = conversations
         self._registry = registry
         self._credentials = credentials
         self._executor = executor
@@ -273,7 +279,7 @@ class LiveSidebandManager:
                 start = perf_counter()
                 with self._registry.delegation(session_id, run.entry.subject, call.call_id):
                     async with asyncio.timeout(self._tool_timeout):
-                        result = await self._executor.run(session_id, question)
+                        result = await self._delegate(session_id, run, question)
                     self._active(session_id, run)
                     output = json.dumps(
                         {
@@ -314,6 +320,27 @@ class LiveSidebandManager:
         finally:
             run.continuing = False
             calls.clear()
+
+    async def _delegate(self, session_id: str, run: _Run, question: str) -> ChatResponse:
+        store = self._conversations
+        key = store.conversation_for_live(session_id) if store is not None else None
+        if store is None or key is None:
+            return await self._executor.run(session_id, question)
+        async with store.operation(key, run.entry.subject, live=True) as context:
+            result = await self._executor.run(session_id, question, context)
+            self._active(session_id, run)
+            # Core guards both inputs and output. Defence in depth before retaining a turn.
+            self._credentials.check(session_id, question)
+            self._credentials.check(session_id, result.model_dump_json())
+            store.append(
+                key, run.entry.subject, ConversationTurn.completed("voice", question, result)
+            )
+            return result
+
+    async def close_internal(self, session_id: str) -> None:
+        run = self._runs.get(session_id)
+        if run is not None:
+            await asyncio.shield(self._begin_close(session_id, run, "conversation_closed"))
 
     def _begin_close(self, session_id: str, run: _Run, reason: str) -> asyncio.Task[None]:
         if run.closer is not None:
@@ -361,6 +388,8 @@ class LiveSidebandManager:
                 with suppress(Exception):
                     await run.socket.close()
             self._runs.pop(session_id, None)
+            if self._conversations is not None:
+                self._conversations.detach_live(session_id)
             self._log(run, "session_closed", reason)
 
     async def _remote_cleanup(self, session_id: str, run: _Run) -> None:

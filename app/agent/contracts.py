@@ -12,7 +12,11 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
 
 
+ConversationId = Annotated[str, Field(min_length=43, max_length=43, pattern=r"^[A-Za-z0-9_-]+$")]
+
+
 class ChatRequest(StrictModel):
+    conversation_id: ConversationId | None = Field(default=None, alias="conversationId")
     message: str = Field(min_length=1, max_length=4000)
 
     @field_validator("message")
@@ -100,7 +104,7 @@ class ModelTurn:
 
 @dataclass(frozen=True)
 class ModelMessage:
-    role: Literal["user", "assistant", "tool"]
+    role: Literal["user", "assistant", "tool", "developer"]
     content: str = ""
     calls: tuple[ToolCall, ...] = ()
     call_id: str = ""

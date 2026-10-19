@@ -8,6 +8,7 @@ from app.agent.rendering import render_answer
 from app.agent.security import CredentialGuard
 from app.agent.toolbox import TOOL_DEFINITIONS, ToolBox
 from app.contracts.presentation import ProjectPresentation
+from app.conversation.context import ConversationContext, check_context_text
 from app.core.latency import count, measure
 
 MAX_TOOL_ROUNDS = 6
@@ -29,22 +30,34 @@ class Agent:
         self._guard = guard
         self._metrics = metrics
 
-    async def run(self, message: str) -> ChatResponse:
+    async def run(self, message: str, context: ConversationContext | None = None) -> ChatResponse:
         try:
             async with asyncio.timeout(MAX_EXECUTION_SECONDS):
                 with measure("agent_total_ms"):
-                    return await self._run(message)
+                    return await self._run(message, context)
         except TimeoutError:
             pass
         raise AgentLimitExceeded()
 
-    async def _run(self, message: str) -> ChatResponse:
+    async def _run(self, message: str, context: ConversationContext | None = None) -> ChatResponse:
         self._guard.check(message)
-        messages = [ModelMessage(role="user", content=message)]
+        if context is not None:
+            check_context_text(message)
+        messages = list(context.messages()) if context is not None else []
+        for previous in messages:
+            self._guard.check(previous.content)
+        if context is not None:
+            self._metrics.update(
+                conversation_context_turns=len(context.turns),
+                conversation_context_chars=context.characters,
+            )
+        count("conversation_context_turns", len(context.turns) if context else 0)
+        count("conversation_context_chars", context.characters if context else 0)
+        messages.append(ModelMessage(role="user", content=message))
         used_ids: set[str] = set()
         names: list[str] = []
         self._metrics.update(tool_calls=0, tools_used=names)
-        size = len(message.encode("utf-8"))
+        size = sum(len(item.content.encode("utf-8")) for item in messages)
         for round_number in range(MAX_TOOL_ROUNDS + 1):
             count("agent_model_calls")
             with measure("agent_model_ms"):
@@ -53,6 +66,15 @@ class Agent:
                 if turn.calls or not turn.answer.answer.strip():
                     raise InvalidModelResponse()
                 self._guard.check(turn.answer.model_dump_json())
+                # Historical prose can never substitute for a fresh read. Safe clarification
+                # and unavailable responses can still ask for information without inventing it.
+                if (
+                    context
+                    and context.turns
+                    and not names
+                    and turn.answer.response_type not in ("clarification", "unavailable")
+                ):
+                    raise InvalidModelResponse()
                 # Spoken prose is not an independent factual channel. Reject divergence,
                 # then render both surfaces from the same content and evidence.
                 if turn.answer.spoken_answer != turn.answer.answer:

@@ -2,7 +2,7 @@ import os
 from math import isfinite
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 
 class ConfigurationError(RuntimeError):
@@ -14,6 +14,7 @@ class Settings(BaseModel):
 
     sng_control_base_url: str
     sng_control_timeout_seconds: float = 30
+    conversation_ttl_seconds: int = Field(default=1800, ge=1, le=3600)
 
     @field_validator("sng_control_base_url")
     @classmethod
@@ -50,6 +51,9 @@ class Settings(BaseModel):
         try:
             return cls.model_validate(
                 {
+                    "conversation_ttl_seconds": os.environ.get(
+                        "SNG_INTELLIGENCE_CONVERSATION_TTL_SECONDS", "1800"
+                    ),
                     "sng_control_base_url": os.environ.get("SNG_CONTROL_BASE_URL"),
                     "sng_control_timeout_seconds": os.environ.get(
                         "SNG_CONTROL_TIMEOUT_SECONDS", "30"
@@ -60,5 +64,6 @@ class Settings(BaseModel):
             pass
         raise ConfigurationError(
             "Invalid configuration: check SNG_CONTROL_BASE_URL and "
-            "SNG_CONTROL_TIMEOUT_SECONDS (positive finite seconds)."
+            "SNG_CONTROL_TIMEOUT_SECONDS (positive finite seconds) and "
+            "SNG_INTELLIGENCE_CONVERSATION_TTL_SECONDS (1..3600)."
         )

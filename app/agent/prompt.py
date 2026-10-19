@@ -121,3 +121,13 @@ Incluye en reference_keys las referencias recuperadas relevantes. No uses claves
 como referencias navegables. No hay memoria: una próxima consulta «El primero»
 no garantiza contexto.
 """
+
+
+# Conversation 3A does not promote historical answers into tool evidence.
+SYSTEM_PROMPT += (
+    "\nHistory is context-only for referent resolution. Re-query tools for every current "
+    "operational claim, even if an earlier answer already stated it. Never replay old evidence "
+    "keys. Use ordered verified reference metadata to resolve pronouns and ordinals, then "
+    "call the existing tools. When history exists, a final answer without a fresh tool read "
+    "must be clarification or unavailable, never a factual answer inferred from memory."
+)

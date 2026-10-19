@@ -3,10 +3,11 @@ from typing import TYPE_CHECKING, Annotated, Literal, Protocol
 
 from pydantic import Field, field_validator
 
-from app.agent.contracts import StrictModel
+from app.agent.contracts import ConversationId, StrictModel
 from app.live.config import MAX_SDP_BYTES
 
 if TYPE_CHECKING:
+    from app.conversation.context import ConversationContext
     from app.live.sideband_transport import SidebandTransport
 
 OpaqueId = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")]
@@ -37,13 +38,17 @@ def valid_sdp(value: str) -> str:
     return value
 
 
-class LiveSessionRequest(StrictModel):
+class _SDP(StrictModel):
     sdp: str = Field(min_length=1, max_length=MAX_SDP_BYTES, repr=False)
 
     _sdp = field_validator("sdp")(valid_sdp)
 
 
-class LiveSessionResponse(LiveSessionRequest):
+class LiveSessionRequest(_SDP):
+    conversation_id: ConversationId | None = Field(default=None, alias="conversationId")
+
+
+class LiveSessionResponse(_SDP):
     session_id: OpaqueId = Field(alias="sessionId")
 
 
@@ -56,5 +61,7 @@ class LiveCloseResponse(StrictModel):
 
 
 class LiveSessionProvider(Protocol):
-    async def create(self, sdp: str) -> LiveSessionResponse: ...
+    async def create(
+        self, sdp: str, context: "ConversationContext | None" = None
+    ) -> LiveSessionResponse: ...
     async def attach(self, session_id: str) -> "SidebandTransport": ...

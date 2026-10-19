@@ -10,12 +10,17 @@ from fastapi.responses import JSONResponse
 
 from app.agent.contracts import ChatRequest, ChatResponse
 from app.agent.core import Agent
-from app.api.dependencies import get_agent, get_control_client
+from app.api.conversation import get_conversations
+from app.api.conversation import router as conversation_router
+from app.api.dependencies import get_agent, get_control_client, get_management_identity
 from app.api.live import router as live_router
 from app.api.voice import router as voice_router
 from app.auth.management_guard import require_management
 from app.clients.sng_control import SnGControlClient
 from app.clients.transport import create_http_client
+from app.contracts.auth import CurrentUser
+from app.conversation.context import ConversationTurn
+from app.conversation.store import ConversationStore
 from app.core.config import Settings
 from app.core.errors import IntelligenceError
 from app.core.observability import CorrelationMiddleware
@@ -44,14 +49,22 @@ def create_app(
             registry = LiveRegistry()
             application.state.live_registry = registry
             credentials = LiveCredentialContext()
+            conversations = ConversationStore(config.conversation_ttl_seconds)
+            application.state.conversations = conversations
             sidebands = LiveSidebandManager(
-                registry, credentials, LiveAgentExecutor(http, credentials)
+                registry,
+                credentials,
+                LiveAgentExecutor(http, credentials),
+                conversations=conversations,
             )
+            conversations.close_live = sidebands.close_internal
             application.state.live_credentials = credentials
             application.state.live_sidebands = sidebands
             try:
                 yield
             finally:
+                await conversations.shutdown()
+                del application.state.conversations
                 await sidebands.shutdown()
                 del application.state.live_sidebands
                 del application.state.live_credentials
@@ -72,6 +85,7 @@ def create_app(
     application.add_middleware(CorrelationMiddleware)
     application.include_router(voice_router)
     application.include_router(live_router)
+    application.include_router(conversation_router)
 
     @application.exception_handler(IntelligenceError)
     async def safe_error(request: Request, exc: IntelligenceError) -> JSONResponse:
@@ -99,8 +113,19 @@ def create_app(
     async def chat(
         body: ChatRequest,
         agent: Annotated[Agent, Depends(get_agent)],
+        identity: Annotated[CurrentUser, Depends(get_management_identity)],
+        store: Annotated[ConversationStore, Depends(get_conversations)],
     ) -> ChatResponse:
-        return await agent.run(body.message)
+        if body.conversation_id is None:
+            return await agent.run(body.message)
+        async with store.operation(body.conversation_id, identity.subject) as context:
+            result = await agent.run(body.message, context)
+            store.append(
+                body.conversation_id,
+                identity.subject,
+                ConversationTurn.completed("text", body.message, result),
+            )
+            return result
 
     @application.get("/api/intelligence/session")
     async def session(
