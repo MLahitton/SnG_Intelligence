@@ -96,6 +96,10 @@ class LiveSidebandManager:
                     "live_duration_seconds": self._registry.duration(run.entry),
                     "live_delegations_count": len(run.entry.calls),
                     "agent_duration_ms": duration,
+                    "turn_number": run.turn_number,
+                    "response_number": run.rounds,
+                    "pending_calls": len(run.pending),
+                    "state": "closing" if run.closing else "active",
                 }
             )
         )
@@ -180,6 +184,7 @@ class LiveSidebandManager:
                 event = parse_event(raw)
                 del raw
                 if isinstance(event, Closed):
+                    self._log(run, "provider_session_closed")
                     run.closed.set()
                     self._begin_close(session_id, run, "session_closed")
                     return
@@ -187,6 +192,23 @@ class LiveSidebandManager:
                     continue
                 self._active(session_id, run)
                 if isinstance(event, ProviderError):
+                    # Never log arbitrary provider codes/messages: they are untrusted text.
+                    code = event.error.code
+                    self._log(
+                        run,
+                        "provider_error",
+                        code
+                        if code
+                        in {
+                            "responses_validation_failed",
+                            "rate_limit_exceeded",
+                            "rate_limit_error",
+                            "tool_outputs_required",
+                            "function_call_outputs_required",
+                            "server_error",
+                        }
+                        else "other_provider_error",
+                    )
                     if event.error.code == "responses_validation_failed":
                         raise ProviderConfigurationError()
                     if event.error.code in {"rate_limit_exceeded", "rate_limit_error"}:
@@ -206,6 +228,7 @@ class LiveSidebandManager:
                     run.delegation_id = event.delegation.id
                     run.response_id = event.delegation.response_id
                     run.completed = False
+                    self._log(run, "delegation_created")
                 elif isinstance(event, ResponseEvent):
                     if (
                         run.continuing
@@ -238,12 +261,19 @@ class LiveSidebandManager:
                     raise LiveProtocolError()
                 run.response_id = inner.response.id
                 run.completed = False
+                self._log(run, "response.created")
             else:
-                if inner.response.id != run.response_id or inner.type != "response.completed":
+                if inner.response.id != run.response_id:
                     raise LiveProtocolError()
+                if inner.type in {"response.failed", "response.incomplete"}:
+                    self._log(run, inner.type)
+                    self._latency_log(run, inner.type)
+                    self._begin_close(session_id, run, inner.type.replace(".", "_"))
+                    return
                 if run.completed:
                     return
                 run.completed = True
+                self._log(run, "response.completed")
                 if run.pending:
                     batch, run.pending = run.pending, []
                     run.job = asyncio.create_task(self._execute(session_id, run, batch))
@@ -346,6 +376,7 @@ class LiveSidebandManager:
         if run.closer is not None:
             return run.closer
         run.closing = True
+        run.pending.clear()
         # Revoke synchronously BEFORE any await, cancellation or remote cleanup.
         self._credentials.revoke(session_id)
         self._registry.discard(session_id)
@@ -391,6 +422,8 @@ class LiveSidebandManager:
             if self._conversations is not None:
                 self._conversations.detach_live(session_id)
             self._log(run, "session_closed", reason)
+            run.delegation_id = run.response_id = None
+            run.accepted.clear()
 
     async def _remote_cleanup(self, session_id: str, run: _Run) -> None:
         socket: SidebandTransport | None = None

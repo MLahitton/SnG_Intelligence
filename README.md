@@ -1203,3 +1203,49 @@ modelo. `/api/auth/me` se consulta sin ese header. El guard conserva temporalmen
 `isManagement`, que Backend deriva de `roles` y verifica con el Google Subject;
 acepta el contrato Auth V2 sin convertir los roles enviados por Browser en autoridad.
 La cuenta puede tener varios roles, pero Intelligence opera exclusivamente en Gerencia.
+
+
+## Live — estabilidad de turnos e interrupciones
+
+El prompt distingue habla clara e intencional de ruido, eco, sonidos breves y audio propio.
+Se conserva full-duplex y barge-in; el prompt es una mitigación, no una garantía acústica.
+No se cambia modelo, configuración de secretos, grounding ni herramientas del Agent.
+
+El sideband registra categorías `delegation_created`, `response.created`, `response.completed`,
+`response.failed`, `response.incomplete`, `provider_error`, `provider_session_closed` y
+`session_closed`, con request_id, turn_number, response_number, pending_calls y estado.
+Los códigos de proveedor se limitan a una lista conocida; los desconocidos se clasifican como
+`other_provider_error`. No se registran IDs del proveedor, mensajes de error crudos, preguntas,
+transcripts, prompt, audio, SDP ni credenciales. Los números identifican delegaciones/respuestas
+observadas, no turnos acústicos inferidos por RMS.
+
+`response.failed` e `response.incomplete` cierran esta sesión de forma segura: se descartan calls
+pendientes, se revoca la credencial, se cancela Agent en curso, se retira registry/binding Live y
+se solicita `session.close`. El cierre remoto sigue siendo best-effort. No se reintenta el trabajo
+ni se deja una delegación esperando. Conversation conserva sus turnos ya completados y permite
+continuar por texto o una sesión Live nueva. Un trabajo cancelado no añade respuesta al historial.
+El Frontend maneja los mismos eventos terminales y pérdida de conexión; no muestra Escuchando
+para una sesión remota terminada.
+
+### Smoke manual de audio (pendiente)
+
+Con la misma configuración actual, ejecutar cada caso sin guardar audio, transcripts ni SDP:
+
+1. **Audífonos:** hacer una consulta y dejar terminar; luego interrumpir intencionalmente.
+   Esperado: respuesta completa y nueva pregunta atendida sin cortes espontáneos.
+2. **Altavoces:** repetir al volumen normal. Esperado: la mitigación de eco evita que el audio
+   propio corte la respuesta en condiciones normales.
+3. **Ruido breve:** producir un sonido corto, sin habla clara, durante la respuesta.
+   Esperado: no cancelar la respuesta por ese sonido.
+4. **Interrupción real:** decir «espera, otra cosa» mientras habla, completar la pregunta y esperar.
+   Esperado: se detiene, escucha y responde al nuevo turno.
+
+Comprobar también mute manual, reactivación sin recrear sesión y recuperación de playback bloqueado.
+Anotar solo resultado, navegador/dispositivo, audífonos/altavoces y categorías/timings seguros.
+Si falla con altavoces pero pasa con audífonos, registrar esa diferencia: hardware, volumen y soporte
+browser influyen en full-duplex. No introducir auto-mute sin esa evidencia. Los tests offline no
+simulan acústica real ni prueban que desaparecieron todas las auto-interrupciones.
+
+Referencia: [delegación GPT-Live](https://developers.openai.com/api/docs/guides/live-delegation).
+La finalización del backend no significa que el usuario haya oído toda la respuesta; comprobar
+ambas cosas en el smoke. Este cambio conserva esa separación.
