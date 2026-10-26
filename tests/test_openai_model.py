@@ -337,7 +337,7 @@ async def test_independent_requests_do_not_replay_provider_context():
     assert all(item.get("type") != "reasoning" for item in requests[2]["input"])
 
 
-@pytest.mark.parametrize("scenario", ["grounded", "forged_reference", "unknown_tool"])
+@pytest.mark.parametrize("scenario", ["grounded", "forged_reference", "repaired", "unknown_tool"])
 async def test_responses_through_core_preserves_dispatch_and_evidence(mock_backend, scenario):
     transport, backend_requests = mock_backend
     provider_requests = []
@@ -352,14 +352,20 @@ async def test_responses_through_core_preserves_dispatch_and_evidence(mock_backe
             return httpx.Response(
                 200, json=response_body([reasoning_item(), function_call(name=name)])
             )
-        output = body["input"][-1]
+        output = next(item for item in body["input"] if item.get("type") == "function_call_output")
+        if len(provider_requests) == 3:
+            assert body["tools"] == [] and body["tool_choice"] == "none"
+            assert body["input"][-1]["role"] == "developer"
+            assert body["input"][1] == reasoning_item()
         assert output["type"] == "function_call_output"
         evidence = json.loads(output["output"])
         assert evidence["data"]["totalProjects"] == 19
         assert evidence["complete"] is True
         key = f"project:{PROJECT_ID}"
         assert key in evidence["available_references"]
-        if scenario == "forged_reference":
+        if scenario == "forged_reference" or (
+            scenario == "repaired" and len(provider_requests) == 2
+        ):
             key = "project:40000000-0000-4000-8000-000000000004"
         return httpx.Response(
             200,
@@ -392,7 +398,7 @@ async def test_responses_through_core_preserves_dispatch_and_evidence(mock_backe
             OpenAIModel(sdk, "test-model"), ToolBox(ReadTools(client), guard), guard, metrics
         )
         try:
-            if scenario == "grounded":
+            if scenario in {"grounded", "repaired"}:
                 result = await agent.run("Resumen")
                 assert result.references[0].project_id == UUID(PROJECT_ID)
                 assert result.references[0].label == "Proyecto"
@@ -406,7 +412,7 @@ async def test_responses_through_core_preserves_dispatch_and_evidence(mock_backe
         assert not backend_requests
         assert len(provider_requests) == 1
     else:
-        assert len(provider_requests) == 2
+        assert len(provider_requests) == (3 if scenario in {"forged_reference", "repaired"} else 2)
         assert [(r["method"], r["path"]) for r in backend_requests] == [
             ("GET", "/api/auth/me"),
             ("GET", "/api/management/overview"),

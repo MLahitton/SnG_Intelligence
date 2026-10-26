@@ -278,14 +278,16 @@ sin inventar su significado ni exponer el enum. IDs y enums internos no cambian.
 
 No contienen URLs. El modelo selecciona claves de un catálogo de evidencia construido
 durante esa ejecución; el servidor obtiene IDs, labels y SG exclusivamente de resultados
-reales. Una clave no recuperada produce `ungrounded_reference` (502). Las referencias
+reales. Una clave no recuperada se rechaza; en una respuesta final se permite un único
+repair antes de producir `ungrounded_reference` (502 en chat/voice básico). Las referencias
 de documentos/actividad requieren evidencia previa del proyecto, normalmente obtenida
 por find_projects o details. El catálogo no se comparte entre requests.
 
 `AgentModel` es un protocolo pequeño e independiente del SDK. `OpenAIModel` implementa
 Responses API del SDK oficial con function calling estricto y JSON Schema para la
 respuesta final; el modelo es configurable, no hardcodeado. Se usa `store=False`, sin
-historial remoto, streaming, tracing, retries ni herramientas alojadas (web/shell/etc.).
+historial remoto, streaming, tracing, reintentos de transporte ni herramientas alojadas
+(web/shell/etc.). El repair final de grounding es explícito y lo controla Agent Core.
 La instancia SDK vive durante un chat, reutiliza conexiones entre rondas y se cierra
 al terminar. Su origen se fija a la API oficial; no se hereda `OPENAI_BASE_URL`.
 
@@ -362,7 +364,8 @@ solo durante el request. El modelo selecciona `presentation_keys`, nunca envía 
 labels, cifras ni fechas como autoridad. El builder obtiene los objetos desde las
 respuestas tipadas de tools: métricas y áreas del overview, proyectos de búsquedas/
 detalles y tareas de overview/tasks/details. Una clave ausente o de tipo incompatible
-falla con `ungrounded_reference` (502). No se recalculan totales ni estados. Las áreas
+se rechaza con `ungrounded_reference`, sujeto al mismo repair final acotado.
+No se recalculan totales ni estados. Las áreas
 reconocidas y los enums usan labels humanos; un valor desconocido se representa con
 label null, sin inventar su significado ni cambiar el valor original en evidence.
 
@@ -1249,3 +1252,58 @@ simulan acústica real ni prueban que desaparecieron todas las auto-interrupcion
 Referencia: [delegación GPT-Live](https://developers.openai.com/api/docs/guides/live-delegation).
 La finalización del backend no significa que el usuario haya oído toda la respuesta; comprobar
 ambas cosas en el smoke. Este cambio conserva esa separación.
+
+
+## Recuperación de grounding en turnos Live
+
+El catálogo de evidencia sigue siendo exclusivo de cada Agent.run. El historial identifica
+referentes, pero no respalda referencias ni Presentation del turno actual. Una respuesta global
+puede usar `reference_keys: []`; no se obliga a conservar el proyecto del turno anterior.
+
+Si la validación final rechaza referencias o presentación, Agent Core realiza **un único repair**:
+
+- añade la respuesta rechazada y una instrucción developer cerrada al contexto del mismo run;
+- solicita una respuesta final con `tools=[]` y `tool_choice="none"`, manteniendo `store=false`;
+- conserva el texto `answer` exactamente y exige `spokenAnswer == answer` antes del rendering;
+- vuelve a validar responseType, presentation_keys, referencias y presentación completas;
+- cuenta la llamada extra en `agent_model_calls`, dentro del timeout original y del presupuesto
+  de transcript, sin nuevas rondas ni ejecuciones de herramientas.
+
+No se filtran referencias silenciosamente. El replay del protocolo de tools permanece disponible
+para ese repair dentro del mismo adapter; no pasa a ConversationContext ni a otro request.
+Si el repair vuelve a fallar, no se reintenta. Los errores de tools anteriores a la respuesta
+final no disparan un repair.
+
+Live convierte únicamente los tipos exactos `UngroundedReference` e `InvalidModelResponse`
+en una respuesta de servidor `unavailable`: «No pude verificar esa consulta en este momento.»
+Comprueba que la sesión y su credencial sigan activas antes de recuperarla. Envía el resultado
+por el `function_call_output` y la continuación existentes, manteniendo el sideband abierto.
+Esta respuesta válida, sin referencias, puede entrar al contexto efímero; nunca se guarda
+la respuesta parcial rechazada. Chat y voice básico conservan sus errores HTTP seguros.
+
+Autenticación, permisos, subject, ownership, expiración/revocación, límites, `InvalidToolCall`,
+fallos de conexión/proveedor y corrupción de protocolo siguen siendo fatales: se cierra Live
+y se revoca la credencial. No cambian las comprobaciones de Gerencia antes de cada Agent.run.
+
+La telemetría registra `grounding_repair_started`, `grounding_repair_succeeded`,
+`grounding_repair_failed` y `turn_recovered`: contadores y categorías seguras, nunca IDs de
+referencias, nombres, preguntas, respuestas ni credenciales. `turn_recovered` conserva la
+correlación de request/turno del sideband.
+
+### Modelos Live: responsabilidades distintas
+
+| Variable | Responsabilidad |
+| --- | --- |
+| `SNG_INTELLIGENCE_LIVE_MODEL` | Modelo speech-to-speech de Live. |
+| `SNG_INTELLIGENCE_LIVE_DELEGATION_MODEL` | Modelo de delegación configurado en el proveedor Live. |
+| `SNG_INTELLIGENCE_LIVE_AGENT_MODEL` | Modelo Responses del Agent Core para la consulta empresarial; si está vacío, usa `SNG_INTELLIGENCE_MODEL`. |
+| `SNG_INTELLIGENCE_LIVE_AGENT_REASONING_EFFORT` | Esfuerzo del Agent de Live (default `low`), según la compatibilidad validada del modelo. |
+| `SNG_INTELLIGENCE_LIVE_AGENT_MAX_OUTPUT_TOKENS` | Límite de salida del Agent de Live (default 800, máximo 3000). |
+
+Los overrides del Agent Live no alteran chat de texto. Este fix no cambia la selección de
+modelos, variables de entorno, voz, micrófono, VAD ni turn_detection.
+
+Las pruebas offline reproducen proyecto → seguimiento con consulta fresca → consulta global
+con referencia histórica inválida → cuarta consulta. Cubren reparación a una referencia actual
+o a `[]`, repair fallido, unavailable recuperable, continuidad de credenciales/registry/binding,
+protocolo Responses, límites y errores fatales. No equivalen a un nuevo smoke acústico real.

@@ -7,7 +7,14 @@ from time import monotonic, perf_counter
 from typing import Protocol
 
 from app.agent.contracts import ChatResponse
-from app.agent.errors import ProviderConfigurationError, ProviderRateLimited, ProviderTimeout
+from app.agent.errors import (
+    InvalidModelResponse,
+    ProviderConfigurationError,
+    ProviderRateLimited,
+    ProviderTimeout,
+    UngroundedReference,
+)
+from app.contracts.presentation import UnavailablePresentation
 from app.conversation.context import ConversationContext, ConversationTurn
 from app.conversation.store import ConversationStore
 from app.core.errors import IntelligenceError
@@ -355,9 +362,9 @@ class LiveSidebandManager:
         store = self._conversations
         key = store.conversation_for_live(session_id) if store is not None else None
         if store is None or key is None:
-            return await self._executor.run(session_id, question)
+            return await self._run_agent(session_id, run, question)
         async with store.operation(key, run.entry.subject, live=True) as context:
-            result = await self._executor.run(session_id, question, context)
+            result = await self._run_agent(session_id, run, question, context)
             self._active(session_id, run)
             # Core guards both inputs and output. Defence in depth before retaining a turn.
             self._credentials.check(session_id, question)
@@ -366,6 +373,31 @@ class LiveSidebandManager:
                 key, run.entry.subject, ConversationTurn.completed("voice", question, result)
             )
             return result
+
+    async def _run_agent(
+        self,
+        session_id: str,
+        run: _Run,
+        question: str,
+        context: ConversationContext | None = None,
+    ) -> ChatResponse:
+        try:
+            return await self._executor.run(session_id, question, context)
+        except InvalidModelResponse as exc:
+            # Deliberately exclude subclasses such as InvalidToolCall. Auth, limits,
+            # provider/transport and session errors continue through fatal cleanup.
+            if type(exc) not in (InvalidModelResponse, UngroundedReference):
+                raise
+            self._active(session_id, run)
+            self._log(run, "turn_recovered", error=exc.code)
+            message = "No pude verificar esa consulta en este momento."
+            return ChatResponse(
+                response_type="unavailable",
+                answer=message,
+                spoken_answer=message,
+                references=[],
+                presentation=UnavailablePresentation(),
+            )
 
     async def close_internal(self, session_id: str) -> None:
         run = self._runs.get(session_id)

@@ -251,6 +251,9 @@ async def test_ambiguity_requires_all_candidates_and_never_selects_first(mock_ba
                 final(
                     "¿Casa Ximena?", kind="clarification", presentation=[f"project:{PROJECT_ID}"]
                 ),
+                final(
+                    "¿Casa Ximena?", kind="clarification", presentation=[f"project:{PROJECT_ID}"]
+                ),
             ),
             transport,
         )
@@ -329,7 +332,11 @@ async def test_presentation_rejects_unretrieved_or_wrong_kind_evidence(mock_back
     transport, _ = mock_backend
     with pytest.raises(UngroundedReference):
         await run_agent(
-            FakeModel(call("get_management_overview"), final(kind=kind, presentation=keys)),
+            FakeModel(
+                call("get_management_overview"),
+                final(kind=kind, presentation=keys),
+                final(kind=kind, presentation=keys),
+            ),
             transport,
         )
 
@@ -462,7 +469,11 @@ async def test_presentation_evidence_does_not_carry_to_next_request(mock_backend
     assert result.presentation.metric.value == 19
     with pytest.raises(UngroundedReference):
         await run_agent(
-            FakeModel(final("Hay 19 proyectos.", presentation=["metric:total_projects"])), transport
+            FakeModel(
+                final("Hay 19 proyectos.", presentation=["metric:total_projects"]),
+                final("Hay 19 proyectos.", presentation=["metric:total_projects"]),
+            ),
+            transport,
         )
 
 

@@ -183,7 +183,11 @@ def test_voice_and_text_use_same_agent_tools_and_grounding(settings, mock_backen
 def test_invented_voice_reference_rejected(settings, mock_backend):
     transport, _ = mock_backend
     app, _, tts, _ = voice_app(
-        settings, transport, model=FakeModel(final(keys=[f"project:{PROJECT_ID}"]))
+        settings,
+        transport,
+        model=FakeModel(
+            final(keys=[f"project:{PROJECT_ID}"]), final(keys=[f"project:{PROJECT_ID}"])
+        ),
     )
     with TestClient(app) as api:
         response = send(api, ENDPOINTS[1])

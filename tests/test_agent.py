@@ -127,14 +127,18 @@ async def test_multiple_calls_and_authoritative_references(mock_backend):
 async def test_references_cannot_be_invented_without_evidence(mock_backend, key):
     transport, _ = mock_backend
     with pytest.raises(UngroundedReference):
-        await run_agent(FakeModel(final(keys=[key])), transport)
+        await run_agent(FakeModel(final(keys=[key]), final(keys=[key])), transport)
 
 
 async def test_reference_from_unretrieved_entity_rejected(mock_backend):
     transport, _ = mock_backend
     with pytest.raises(UngroundedReference):
         await run_agent(
-            FakeModel(call("get_management_overview"), final(keys=[f"project:{CLIENT_ID}"])),
+            FakeModel(
+                call("get_management_overview"),
+                final(keys=[f"project:{CLIENT_ID}"]),
+                final(keys=[f"project:{CLIENT_ID}"]),
+            ),
             transport,
         )
 

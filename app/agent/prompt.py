@@ -212,3 +212,22 @@ contenido ilegible ni cálculos financieros exhaustivos. Parafrasea; citas breve
 Follow-ups resuelven el documento por sus referencias mínimas, pero cada análisis vuelve a obtener
 metadata y bytes. No uses resúmenes históricos como nueva evidencia. Live usa el mismo flujo.
 """
+
+
+GROUNDING_REPAIR_INSTRUCTION = """
+The previous final response contains reference_keys or presentation_keys that are not
+supported by this run's evidence. Correct only the final response metadata, without tools.
+Use reference_keys exclusively from available_references returned by tools in this run,
+or [] when no navigable reference is needed (including aggregate answers).
+Historical ConversationContext references identify referents; they are NOT current evidence.
+Use presentation_keys only from this run's available_presentation, respecting
+responseType and its presentation contract. Never invent IDs, keys or facts.
+Keep answer exactly unchanged and spokenAnswer identical to answer. Add no new claims.
+Return the complete structured final response, not a patch or tool call.
+"""
+
+SYSTEM_PROMPT += """
+Para preguntas globales o puramente agregadas, reference_keys puede ser [] aunque el
+contexto anterior mencione un proyecto. Las referencias finales solo usan evidencia
+recuperada en este run, nunca claves del historial por sí solas.
+"""

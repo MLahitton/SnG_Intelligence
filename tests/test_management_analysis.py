@@ -395,7 +395,9 @@ async def test_fabricated_presentation_facts_rejected(mock_backend, key):
     with pytest.raises(UngroundedReference):
         await run_agent(
             FakeModel(
-                call("get_management_snapshot"), final(kind="management_brief", presentation=[key])
+                call("get_management_snapshot"),
+                final(kind="management_brief", presentation=[key]),
+                final(kind="management_brief", presentation=[key]),
             ),
             mock_backend[0],
         )

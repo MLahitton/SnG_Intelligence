@@ -112,6 +112,7 @@ class OpenAIModel:
                 ),
                 input=wire,
                 tools=schemas,
+                tool_choice="none" if not tools else openai.omit,
                 parallel_tool_calls=False,
                 text={
                     "format": {
@@ -217,7 +218,8 @@ class OpenAIModel:
             return ModelTurn(calls=tuple(calls))
         if answer is None or calls:
             raise ValueError("Ambiguous or missing answer")
-        self._replay.clear()
+        # Keep this run's tool protocol items available for a final-only grounding repair.
+        # A new transcript clears them at respond() entry; the adapter is request-scoped.
         return ModelTurn(answer=answer)
 
 

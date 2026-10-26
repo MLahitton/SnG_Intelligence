@@ -131,6 +131,10 @@ class ToolBox:
         )
         self._references[f"{reference.type}:{identifier}"] = reference
 
+    @property
+    def available_reference_count(self) -> int:
+        return len(self._references)
+
     def references(self, keys: list[str]) -> list[Reference]:
         if any(key not in self._references for key in keys):
             raise UngroundedReference()
