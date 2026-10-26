@@ -51,7 +51,7 @@ TOOL_DEFINITIONS = (
         ComparisonArguments,
     ),
     ToolDefinition(
-        "get_management_overview", "Official project, task and Leak Time counts.", NoArguments
+        "get_management_overview", "Official project, task and Lead Time counts.", NoArguments
     ),
     ToolDefinition(
         "list_management_tasks", "All official management tasks, in backend order.", NoArguments

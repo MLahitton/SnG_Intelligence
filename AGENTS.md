@@ -23,7 +23,7 @@ SnG Intelligence MUST NOT independently determine or persist business truth such
 - project state;
 - task state;
 - SG assignment;
-- Leak Time;
+- Lead Time;
 - deadlines;
 - overdue status;
 - area ownership;
@@ -46,10 +46,10 @@ if task.deadline_at < datetime.now():
 Correct:
 
 ```python
-status = task.leak_time_status
+status = task.lead_time_status
 ```
 
-because SnG-Control-Backend already owns Leak Time logic.
+because SnG-Control-Backend already owns Lead Time logic.
 
 ---
 
@@ -342,7 +342,7 @@ Do not duplicate business rules owned by SnG-Control-Backend.
 Examples of logic that MUST remain authoritative in backend:
 
 - task status;
-- Leak Time;
+- Lead Time;
 - overdue;
 - DueSoon;
 - DueToday;
@@ -465,7 +465,7 @@ Do not create embeddings for:
 
 - projects;
 - tasks;
-- Leak Time;
+- Lead Time;
 - SG;
 - management overview;
 - structured workflow state
@@ -868,7 +868,7 @@ The following rules must not be violated without an explicit architectural decis
 4. **No arbitrary HTTP tool or proxy.**
 5. **No credentials exposed to the LLM.**
 6. **No Google token persistence or logging.**
-7. **No duplicated Leak Time or workflow logic.**
+7. **No duplicated Lead Time or workflow logic.**
 8. **No authorization based on email, name or hardcoded Subject.**
 9. **No RAG without a concrete unstructured-data requirement.**
 10. **No hallucinated operational data.**
@@ -937,7 +937,7 @@ small adapters; model/voice configuration is server-owned and never supplied by 
    Preserve proper names; pronunciation changes require an explicit, minimal lexicon.
 7. Voice and text continue using the same Agent Core, tools, grounding and authorization.
 8. Keep original timestamps in evidence/presentation. Natural date display uses America/Bogota;
-   never recalculate deadlines or Leak Time. Unknown labels do not acquire invented meanings.
+   never recalculate deadlines or Lead Time. Unknown labels do not acquire invented meanings.
 9. Clarification without conversationId has no later context. Conversation 3A may retain
    verified ordered referents ephemerally; never add persistence or provider Conversations.
 
@@ -980,7 +980,7 @@ small adapters; model/voice configuration is server-owned and never supplied by 
     Never send session.start on attach. Parse only completed typed function items,
     correlate delegation/response/call IDs, deduplicate execution, and send one
     response.create after all outputs in a completed response. No infinite reconnect.
-13. Natural answers use human deadline/status language, not “Leak Time” jargon. Keep
+13. Natural answers use human deadline/status language, not “Lead Time” jargon. Keep
     official internal enums and business calculations unchanged; preserve proper names.
 14. Public task reference labels use the centralized Spanish task glossary. Unknown types
     display a neutral “Tarea”; never let the model invent the label or change an ID.

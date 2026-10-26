@@ -80,9 +80,9 @@ def _dates(text: str, *, spoken: bool) -> str:
 def _labels(text: str) -> str:
     pattern = r"\b(" + "|".join(MANAGEMENT_LABELS_ES) + r")\b"
     text = re.sub(pattern, lambda match: MANAGEMENT_LABELS_ES[match[0]], text)
-    text = re.sub(r"\b(?:su|el)\s+Leak\s*Time\s+está\b", "La tarea está", text, flags=re.I)
-    text = re.sub(r"\bLeakTimeStatus\b", "estado del plazo", text, flags=re.I)
-    return re.sub(r"\bLeak\s*Time\b", "plazo", text, flags=re.I)
+    text = re.sub(r"\b(?:su|el)\s+Lead\s*Time\s+está\b", "La tarea está", text, flags=re.I)
+    text = re.sub(r"\bLeadTimeStatus\b", "estado del plazo", text, flags=re.I)
+    return re.sub(r"\bLead\s*Time\b", "plazo", text, flags=re.I)
 
 
 def normalize_speech(text: str, protected_names: set[str] | None = None) -> str:

@@ -103,7 +103,7 @@ class ReadTools:
             ordered = sorted(
                 tasks,
                 key=lambda task: priority.get(
-                    task.leak_time_status, 3 if task.status in {"Pending", "InProgress"} else 4
+                    task.lead_time_status, 3 if task.status in {"Pending", "InProgress"} else 4
                 ),
             )[:12]
             compact = [
@@ -117,7 +117,7 @@ class ReadTools:
                         "area": task.area,
                         "taskType": task.type,
                         "taskStatus": task.status,
-                        "leakTimeStatus": task.leak_time_status,
+                        "leadTimeStatus": task.lead_time_status,
                         "deadlineAt": task.deadline_at,
                         "startedAt": task.started_at,
                     }

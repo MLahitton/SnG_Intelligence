@@ -55,8 +55,8 @@ def test_date_presentation_policy_includes_timezone_and_boundary_cases():
 
 
 def test_budget_context_does_not_infer_business_state_or_assignment_history():
-    # These are contractual prompt assertions; no Leak Time calculation lives here.
-    assert "PrepareQuotation con status Pending todavía no tiene Leak Time activo" in SYSTEM_PROMPT
+    # These are contractual prompt assertions; no Lead Time calculation lives here.
+    assert "PrepareQuotation con status Pending todavía no tiene Lead Time activo" in SYSTEM_PROMPT
     assert "Presupuestos comienza con la primera asignación del SG" in SYSTEM_PROMPT
     assert "Pending sin deadline no debe" in SYSTEM_PROMPT
     assert "pendiente de inicio/asignación" in " ".join(SYSTEM_PROMPT.split())
@@ -67,7 +67,7 @@ def test_budget_context_does_not_infer_business_state_or_assignment_history():
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "task_type,status,leak_status,deadline,prose",
+    "task_type,status,lead_status,deadline,prose",
     [
         (
             "PrepareQuotation",
@@ -96,13 +96,13 @@ def test_budget_context_does_not_infer_business_state_or_assignment_history():
     ],
 )
 async def test_presentation_context_round_trip_preserves_evidence(
-    mock_backend, payloads, task_type, status, leak_status, deadline, prose
+    mock_backend, payloads, task_type, status, lead_status, deadline, prose
 ):
     project_name = "Casa OnTrack — Peña"
     project_path = f"/api/projects/{PROJECT_ID}"
     payloads[project_path]["name"] = project_name
     task = payloads[f"{project_path}/tasks"][0]
-    task.update(type=task_type, status=status, leakTimeStatus=leak_status, deadlineAt=deadline)
+    task.update(type=task_type, status=status, leadTimeStatus=lead_status, deadlineAt=deadline)
     original = copy.deepcopy(payloads)
     transport, _ = mock_backend
     requests = []
@@ -116,7 +116,7 @@ async def test_presentation_context_round_trip_preserves_evidence(
         assert "español natural" in wire["instructions"]
         assert "No traduzcas ni alteres nombres" in wire["instructions"]
         assert "America/Bogota" in wire["instructions"]
-        for value in (task_type, status, leak_status):
+        for value in (task_type, status, lead_status):
             assert f"{value} → {MANAGEMENT_LABELS_ES[value]}" in wire["instructions"]
         if len(requests) == 1:
             return httpx.Response(
@@ -134,7 +134,7 @@ async def test_presentation_context_round_trip_preserves_evidence(
         received_task = envelope["data"]["tasks"][0]
         assert received_task["type"] == task_type
         assert received_task["status"] == status
-        assert received_task["leakTimeStatus"] == leak_status
+        assert received_task["leadTimeStatus"] == lead_status
         assert received_task["deadlineAt"] == deadline
         assert envelope["data"]["project"]["name"] == project_name
         evidence_refs.update(envelope["available_references"])
@@ -189,10 +189,10 @@ async def test_presentation_context_round_trip_preserves_evidence(
 @pytest.mark.parametrize(
     "source,expected",
     [
-        ("Su Leak Time está en tiempo.", "La tarea está en tiempo."),
-        ("El Leak Time está sin iniciar.", "La tarea está sin iniciar."),
-        ("Revisar el Leak Time.", "Revisar el plazo."),
-        ("LeakTimeStatus: DueToday.", "estado del plazo: Vence hoy."),
+        ("Su Lead Time está en tiempo.", "La tarea está en tiempo."),
+        ("El Lead Time está sin iniciar.", "La tarea está sin iniciar."),
+        ("Revisar el Lead Time.", "Revisar el plazo."),
+        ("LeadTimeStatus: DueToday.", "estado del plazo: Vence hoy."),
     ],
 )
 def test_natural_views_use_human_deadline_language(source, expected):
@@ -200,10 +200,10 @@ def test_natural_views_use_human_deadline_language(source, expected):
 
 
 def test_deadline_language_preserves_official_project_names():
-    name = "Casa Leak Time"
-    visual, spoken = render_answer(f"{name}: Su Leak Time está en tiempo.", {name})
+    name = "Casa Lead Time"
+    visual, spoken = render_answer(f"{name}: Su Lead Time está en tiempo.", {name})
     assert visual == spoken == f"{name}: La tarea está en tiempo."
-    assert "evita el término técnico «Leak Time»" in SYSTEM_PROMPT
+    assert "evita el término técnico «Lead Time»" in SYSTEM_PROMPT
 
 
 @pytest.mark.anyio

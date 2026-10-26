@@ -10,7 +10,7 @@ class TaskCounts(BackendContract):
     completed: int
 
 
-class LeakTimeCounts(BackendContract):
+class LeadTimeCounts(BackendContract):
     not_started: int
     on_track: int
     due_soon: int
@@ -37,7 +37,7 @@ class AttentionItem(BackendContract):
     area: str
     task_type: str
     task_status: str
-    leak_time_status: str
+    lead_time_status: str
     deadline_at: datetime | None
     started_at: datetime | None
 
@@ -50,7 +50,7 @@ class Attention(BackendContract):
 class ManagementOverview(BackendContract):
     total_projects: int
     tasks: TaskCounts
-    leak_time: LeakTimeCounts
+    lead_time: LeadTimeCounts
     areas: list[AreaSummary]
     attention: Attention
 
@@ -72,4 +72,4 @@ class ManagementTask(BackendContract):
     completed_at: datetime | None
     deadline_at: datetime | None
     was_overdue: bool | None
-    leak_time_status: str
+    lead_time_status: str

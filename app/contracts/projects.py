@@ -36,7 +36,7 @@ class ProjectTask(BackendContract):
     assigned_to_google_subject: str | None
     deadline_at: datetime | None
     was_overdue: bool | None
-    leak_time_status: str
+    lead_time_status: str
 
 
 class ProjectDetails(BackendContract):

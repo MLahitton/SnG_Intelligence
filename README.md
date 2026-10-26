@@ -10,7 +10,7 @@ Gerencia -> Intelligence API -> Agent Core -> ReadTools -> SnG Control
                                     +-> AgentModel -> OpenAI
 ```
 
-No hay acceso a DB, copia persistida de Project/ProjectTask, cálculo de Leak Time,
+No hay acceso a DB, copia persistida de Project/ProjectTask, cálculo de Lead Time,
 escrituras, RAG, embeddings ni conversaciones persistidas. Voice 1A agrega voz
 request/response sobre el mismo agente como fallback. Realtime Voice 2C agrega sesiones GPT-Live y ejecución empresarial por sideband
 privado; el navegador conserva WebRTC, captions y controles.
@@ -320,13 +320,13 @@ explicar disponibilidad o cuando el usuario la pide. Hechos y recomendaciones se
 distinguen explícitamente, sin inferir productividad desde cantidad de tareas.
 
 `rendering.py` aplica el glosario centralizado y convierte timestamps con offset a
-formato humano. En la prosa evita «Leak Time»: usa «plazo» o el estado humano,
+formato humano. En la prosa evita «Lead Time»: usa «plazo» o el estado humano,
 por ejemplo «La tarea está en tiempo». La conversión de fechas usa
 `America/Bogota`, mediante ZoneInfo y tzdata (también en Windows). No cambia DTO,
 evidence, deadlines ni referencias. Protege los nombres recuperados de proyectos,
 clientes y ciudades de reemplazos, incluidos nombres que contienen enums o SG.
 Fechas sin zona no se asumen UTC; el prompt exige aclarar que falta zona y no
-completar nulls. Preparar cotización pendiente no tiene Leak Time activo; Presupuestos
+completar nulls. Preparar cotización pendiente no tiene Lead Time activo; Presupuestos
 lo inicia con la primera asignación del SG. No se calcula atraso ni se infiere historia
 de asignación; Pending sin deadline se puede describir como pendiente de inicio.
 
@@ -352,7 +352,7 @@ ProjectItem = {kind: "project", projectId: UUID, projectName: string,
                sgCode: string | null, clientName: string | null, city: string | null}
 TaskItem    = {kind: "task", projectId: UUID, projectName: string, sgCode: string | null,
                taskId: UUID, area: string | null, task: string | null, status: string | null,
-               leakTimeStatus: string | null, deadlineAt: datetime | null}
+               leadTimeStatus: string | null, deadlineAt: datetime | null}
 AreaItem    = {area: string | null, pending: int, inProgress: int, completed: int,
                overdue: int, dueToday: int, dueSoon: int}
 ```
@@ -993,7 +993,7 @@ ComparedProjectItem = {project: ProjectItem, metrics: Metric[], tasks: TaskItem[
 comparison = {kind: "comparison", areas: [], projects: ComparedProjectItem[2..4]}
 ```
 
-El servidor cuenta tareas por status/leakTimeStatus oficiales, sin recalcular ninguno.
+El servidor cuenta tareas por status/leadTimeStatus oficiales, sin recalcular ninguno.
 Solo añade counts de documentos/avisos si se leyeron (documentos devueltos/vigentes devueltos,
 no una afirmación sobre contenido ni historia completa). Labels, IDs y fechas salen de evidencia.
 El modelo selecciona todas las claves project: del conjunto; no suministra métricas propias.

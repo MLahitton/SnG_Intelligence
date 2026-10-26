@@ -53,7 +53,7 @@ class TaskItem(PresentationModel):
     area: str | None
     task: str | None
     status: str | None
-    leak_time_status: str | None
+    lead_time_status: str | None
     deadline_at: datetime | None
 
 

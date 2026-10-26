@@ -105,7 +105,7 @@ async def test_project_name_first_metadata_and_spoken_from_same_source(
     task.update(
         type="PrepareQuotation",
         status="InProgress",
-        leakTimeStatus="OnTrack",
+        leadTimeStatus="OnTrack",
         deadlineAt="2026-10-21T22:00:00Z",
     )
     original = copy.deepcopy(payloads)
@@ -139,7 +139,7 @@ async def test_project_name_first_metadata_and_spoken_from_same_source(
     assert metadata["tasks"][0]["deadlineAt"] == task["deadlineAt"]
     assert metadata["tasks"][0]["area"] == "Presupuestos"
     assert metadata["tasks"][0]["status"] == "En curso"
-    assert metadata["tasks"][0]["leakTimeStatus"] == "En tiempo"
+    assert metadata["tasks"][0]["leadTimeStatus"] == "En tiempo"
     assert str(result.references[1].task_id) == TASK_ID
     assert payloads == original
     assert metrics["tools_used"] == ["find_projects", "get_project_details"]
@@ -148,7 +148,7 @@ async def test_project_name_first_metadata_and_spoken_from_same_source(
 @pytest.mark.anyio
 async def test_pending_without_deadline_preserves_official_not_started(mock_backend, payloads):
     task = payloads[f"/api/projects/{PROJECT_ID}/tasks"][0]
-    task.update(type="PrepareQuotation", status="Pending", leakTimeStatus="NotStarted")
+    task.update(type="PrepareQuotation", status="Pending", leadTimeStatus="NotStarted")
     transport, _ = mock_backend
     result, _ = await run_agent(
         FakeModel(
@@ -162,7 +162,7 @@ async def test_pending_without_deadline_preserves_official_not_started(mock_back
         transport,
     )
     assert result.presentation.tasks[0].deadline_at is None
-    assert result.presentation.tasks[0].leak_time_status == "Sin iniciar"
+    assert result.presentation.tasks[0].lead_time_status == "Sin iniciar"
     assert "atrasada" not in result.answer + result.spoken_answer
     assert "fuera de plazo" not in result.answer + result.spoken_answer
 
@@ -178,7 +178,7 @@ async def test_brief_and_list_ground_entities_and_keep_recommendation_separate(m
                 prose,
                 kind="management_brief",
                 presentation=[
-                    "metric:leak_time.overdue",
+                    "metric:lead_time.overdue",
                     "metric:attention.total",
                     f"task:{TASK_ID}",
                 ],

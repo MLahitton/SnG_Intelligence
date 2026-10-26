@@ -86,7 +86,7 @@ class PresentationEvidence:
             area=AREA_LABELS_ES.get(task.area),
             task=MANAGEMENT_LABELS_ES.get(task_type),
             status=MANAGEMENT_LABELS_ES.get(status),
-            leak_time_status=MANAGEMENT_LABELS_ES.get(task.leak_time_status),
+            lead_time_status=MANAGEMENT_LABELS_ES.get(task.lead_time_status),
             deadline_at=task.deadline_at,
         )
 
@@ -120,9 +120,9 @@ class PresentationEvidence:
             ("completed_late", "CompletedLate"),
             ("untracked_legacy", "UntrackedLegacy"),
         ):
-            counts[f"leak_time.{field}"] = (
+            counts[f"lead_time.{field}"] = (
                 MANAGEMENT_LABELS_ES[internal],
-                getattr(overview.leak_time, field),
+                getattr(overview.lead_time, field),
             )
         for key, (label, value) in counts.items():
             self.items[f"metric:{key}"] = Metric(key=key, label=label, value=value)
@@ -164,7 +164,7 @@ class PresentationEvidence:
             for status in ("Overdue", "DueToday", "DueSoon", "NotStarted", "OnTrack"):
                 counts[f"deadlines.{status}"] = (
                     MANAGEMENT_LABELS_ES[status],
-                    sum(task.leak_time_status == status for task in tasks),
+                    sum(task.lead_time_status == status for task in tasks),
                 )
             if result.documents is not None:
                 counts["documents.returned"] = (

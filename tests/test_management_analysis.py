@@ -64,7 +64,7 @@ def projects(payloads, number=2):
                 "projectId": identifier,
                 "type": "PrepareQuotation",
                 "status": "Pending",
-                "leakTimeStatus": "NotStarted",
+                "leadTimeStatus": "NotStarted",
                 "deadlineAt": None if index == 0 else "2026-10-21T22:00:00Z",
             }
         ]
@@ -105,7 +105,7 @@ async def test_snapshot_parallel_official_counts_order_bounds_and_projection(pay
             {
                 **attention,
                 "taskId": str(UUID(int=1000 + i)),
-                "leakTimeStatus": "DueSoon" if i == 0 else "Overdue",
+                "leadTimeStatus": "DueSoon" if i == 0 else "Overdue",
             }
             for i in range(25)
         ],
@@ -114,7 +114,7 @@ async def test_snapshot_parallel_official_counts_order_bounds_and_projection(pay
         {
             **tasks[0],
             "taskId": str(UUID(int=2000 + i)),
-            "leakTimeStatus": "Overdue" if i == 19 else "NotStarted",
+            "leadTimeStatus": "Overdue" if i == 19 else "NotStarted",
         }
         for i in range(20)
     ]
@@ -135,9 +135,9 @@ async def test_snapshot_parallel_official_counts_order_bounds_and_projection(pay
             snapshot = await tools.get_management_snapshot()
     assert snapshot.overview.total_projects == 19
     assert snapshot.overview.tasks.pending == 3
-    assert snapshot.overview.leak_time.overdue == 5
-    assert snapshot.overview.attention.items[0].leak_time_status == "DueSoon"
-    assert snapshot.tasks[0].leak_time_status == "Overdue"
+    assert snapshot.overview.lead_time.overdue == 5
+    assert snapshot.overview.attention.items[0].lead_time_status == "DueSoon"
+    assert snapshot.tasks[0].lead_time_status == "Overdue"
     assert snapshot.attention_coverage.model_dump() == {
         "total": 25,
         "returned": 8,
@@ -208,7 +208,7 @@ async def test_composite_reads_cancel_all_siblings(payloads, failure, operation)
         (
             "¿Qué debería preocuparme hoy?",
             "management_brief",
-            [f"task:{TASK_ID}", "metric:leak_time.overdue"],
+            [f"task:{TASK_ID}", "metric:lead_time.overdue"],
         ),
         ("¿Qué área está más cargada?", "comparison", ["area:0"]),
         ("¿Tenemos un cuello de botella?", "management_brief", ["area:0"]),
@@ -242,7 +242,7 @@ async def test_scripted_evals_a_b_c_g_one_round(mock_backend, question, kind, ke
 async def test_brief_empty_state(payloads, mock_backend):
     overview = payloads["/api/management/overview"]
     overview["totalProjects"] = 0
-    for group in ("tasks", "leakTime"):
+    for group in ("tasks", "leadTime"):
         overview[group] = dict.fromkeys(overview[group], 0)
     overview["areas"] = []
     overview["attention"] = {"total": 0, "items": []}
@@ -305,7 +305,7 @@ async def test_compare_parallel_current_facts_and_complete_ordered_references(pa
     first, second = result.presentation.projects[:2]
     assert next(m.value for m in first.metrics if m.key == "tasks.Pending") == 1
     assert first.tasks[0].task == "Preparar cotización"
-    assert first.tasks[0].leak_time_status == "Sin iniciar"
+    assert first.tasks[0].lead_time_status == "Sin iniciar"
     assert first.tasks[0].deadline_at is None
     assert second.tasks[0].deadline_at.isoformat() == "2026-10-21T22:00:00+00:00"
     assert not any(path.endswith(("/documents", "/notifications")) for path in paths)
@@ -597,7 +597,7 @@ async def test_comparison_preserves_official_overdue_even_with_future_deadline(
     identifiers = projects(payloads)
     task = payloads[f"/api/projects/{identifiers[1]}/tasks"][0]
     task["deadlineAt"] = "2099-10-21T22:00:00Z"
-    task["leakTimeStatus"] = "Overdue"
+    task["leadTimeStatus"] = "Overdue"
     model = FakeModel(
         *comparison_turns(identifiers),
         final(
@@ -607,6 +607,6 @@ async def test_comparison_preserves_official_overdue_even_with_future_deadline(
     )
     result, _ = await run_agent(model, mock_backend[0])
     compared = result.presentation.projects[1]
-    assert compared.tasks[0].leak_time_status == "Atrasada"
+    assert compared.tasks[0].lead_time_status == "Atrasada"
     assert compared.tasks[0].deadline_at.year == 2099
     assert next(m.value for m in compared.metrics if m.key == "deadlines.Overdue") == 1

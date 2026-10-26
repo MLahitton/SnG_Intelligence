@@ -48,7 +48,7 @@ def payloads():
         "completedAt": None,
         "deadlineAt": None,
         "wasOverdue": None,
-        "leakTimeStatus": "FutureLeakStatus",
+        "leadTimeStatus": "FutureLeadStatus",
     }
     return {
         "/api/auth/me": copy.deepcopy(AUTH),
@@ -56,7 +56,7 @@ def payloads():
         "/api/management/overview": {
             "totalProjects": 19,
             "tasks": {"pending": 3, "inProgress": 5, "completed": 8},
-            "leakTime": {
+            "leadTime": {
                 "notStarted": 1,
                 "onTrack": 2,
                 "dueSoon": 3,
@@ -89,7 +89,7 @@ def payloads():
                         "area": "Commercial",
                         "taskType": "FutureTaskType",
                         "taskStatus": "Pending",
-                        "leakTimeStatus": "FutureLeakStatus",
+                        "leadTimeStatus": "FutureLeadStatus",
                         "deadlineAt": None,
                         "startedAt": None,
                     }
@@ -121,7 +121,7 @@ def payloads():
                 "assignedToGoogleSubject": None,
                 "deadlineAt": None,
                 "wasOverdue": None,
-                "leakTimeStatus": "UntrackedLegacy",
+                "leadTimeStatus": "UntrackedLegacy",
             }
         ],
         f"/api/projects/{PROJECT_ID}/documents": {
