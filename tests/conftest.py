@@ -10,7 +10,13 @@ TASK_ID = "20000000-0000-4000-8000-000000000002"
 CLIENT_ID = "30000000-0000-4000-8000-000000000003"
 DATE = "2026-10-16T12:00:00Z"
 TOKEN = "test-google-id-token.sensitive.signature"
-AUTH = {"subject": "manager", "email": None, "name": None, "isManagement": True}
+AUTH = {
+    "subject": "manager",
+    "email": None,
+    "name": None,
+    "isManagement": True,
+    "roles": ["Management"],
+}
 
 
 @pytest.fixture
@@ -171,6 +177,7 @@ def mock_backend(payloads):
                 "path": request.url.path,
                 "authorized": request.headers.get("authorization") == f"Bearer {TOKEN}",
                 "request_id": request.headers.get("x-request-id"),
+                "active_role": request.headers.get("x-sng-active-role"),
                 "cookie": request.headers.get("cookie"),
             }
         )

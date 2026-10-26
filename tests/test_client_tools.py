@@ -41,6 +41,7 @@ async def test_exact_client_paths_and_forwarding(mock_backend, method, suffix):
         await getattr(client, method)(*args)
         assert "authorization" not in http.headers
     assert [(x["method"], x["path"], x["authorized"]) for x in calls] == [("GET", suffix, True)]
+    assert calls[0]["active_role"] == (None if suffix == "/api/auth/me" else "Management")
 
 
 async def test_overview_values_preserved(mock_backend, payloads):

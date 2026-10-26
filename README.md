@@ -1194,3 +1194,12 @@ ni estados operacionales derivados del documento. Verificar navegación, todos l
 ambiguos, limpieza al cancelar y timings/byte counts sin contenido en logs. Registrar solo el
 resultado de la comprobación y métricas no sensibles, no transcripts ni dumps. Smoke real 4B
 no ejecutado por la suite offline; requiere esta revisión antes de publicar.
+
+### Identity & Areas V1
+
+El cliente SnG Control envía siempre `X-SnG-Active-Role: Management` en consultas
+operacionales y descargas documentales. El rol es fijo, fuera de los argumentos del
+modelo. `/api/auth/me` se consulta sin ese header. El guard conserva temporalmente
+`isManagement`, que Backend deriva de `roles` y verifica con el Google Subject;
+acepta el contrato Auth V2 sin convertir los roles enviados por Browser en autoridad.
+La cuenta puede tener varios roles, pero Intelligence opera exclusivamente en Gerencia.

@@ -75,6 +75,7 @@ class SnGControlClient:
                 "Authorization": f"Bearer {self._token.get_secret_value()}",
                 "X-Request-ID": str(self._request_id),
                 "Accept": "application/json",
+                **({"X-SnG-Active-Role": "Management"} if path != "/api/auth/me" else {}),
             },
         )
         error: IntelligenceError | None = None
@@ -177,6 +178,7 @@ class SnGControlClient:
                 "X-Request-ID": str(self._request_id),
                 "Accept": "application/octet-stream",
                 "Accept-Encoding": "identity",
+                "X-SnG-Active-Role": "Management",
             },
         )
         response: httpx.Response | None = None
