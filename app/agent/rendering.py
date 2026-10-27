@@ -5,6 +5,7 @@ from collections.abc import Callable
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from app.agent.money import speak_cop
 from app.agent.prompt import MANAGEMENT_LABELS_ES
 
 _MONTHS = (
@@ -110,4 +111,5 @@ def render_answer(text: str, names: set[str]) -> tuple[str, str]:
 
     spoken = _outside_names(spoken, names, plain)
     spoken = normalize_speech(spoken, names)
+    spoken = _outside_names(spoken, names, speak_cop)
     return visual, spoken

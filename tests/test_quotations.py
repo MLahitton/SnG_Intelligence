@@ -92,17 +92,18 @@ def quotations(payloads):
     commercial = dict(
         projectId=PROJECT_ID,
         commercialQuotationId=CLIENT_ID,
+        currencyCode="COP",
         confirmedAt=DATE,
         # Intentionally not a recomputed sum of item totals: the Backend owns this number.
-        projectTotal=98.1234,
+        projectTotal=98.12,
         items=[
             dict(
                 section=item["section"],
                 sourceRow=item["sourceRow"],
                 commercialCatalogItemId=item["id"],
                 values={**item["confirmed"], "system": "B", "glass": "Templado"},
-                unitPrice=1.2345,
-                totalPrice=42.5678,
+                unitPrice=1.23,
+                totalPrice=42.57,
                 imageStatus="Stored",
                 hasImage=True,
                 technicalDifferences=[
@@ -295,14 +296,14 @@ async def test_projection_preserves_decimal_and_official_differences_without_int
             "extracted",
             "EXTRACTED-NOT-CONFIRMED",
             "totalSquareMeters",
-            "currency",
         ):
             assert internal not in text
         assert not any(i["id"] in text for i in quotations[0]["items"])
         if source == "commercial":
-            assert parsed.project_total == Decimal("98.1234")
-            assert result["projectTotal"] == "98.1234"
-            assert result["items"][0]["unitPrice"] == "1.2345"
+            assert parsed.project_total == Decimal("98.12")
+            assert result["projectTotal"] == "98.12"
+            assert result["currencyCode"] == "COP"
+            assert result["items"][0]["unitPrice"] == "1.23"
             assert (
                 result["items"][0]["technicalDifferences"]
                 == payload["items"][0]["technicalDifferences"]
@@ -356,7 +357,7 @@ async def test_large_quotation_is_rejected_without_partial_output(quotations, mo
         ),
         ("¿Qué sistema tiene?", "commercial", "El sistema registrado es B."),
         ("¿Qué sistema tenía Presupuestos?", "budget", "El sistema de Presupuestos es A."),
-        ("¿Cuánto cuesta el proyecto?", "commercial", "El total registrado es 98.1234."),
+        ("¿Cuánto cuesta el proyecto?", "commercial", "El total registrado es 98.12."),
         ("¿Qué cambió Comercial?", "commercial", "El vidrio cambió de Laminado a Templado."),
     ],
 )
@@ -424,7 +425,7 @@ async def test_no_new_navigation_contract_or_silent_empty_fields(quotations):
     assert "Nunca respondas preguntas sobre ítems" in SYSTEM_PROMPT
     assert "NUNCA uses tareas como fallback" in SYSTEM_PROMPT
     assert "no uses itemCount de una cotización como conteo de tareas" in SYSTEM_PROMPT
-    assert "no añadas COP, pesos ni $" in SYSTEM_PROMPT
+    assert "No infieras moneda si no viene en la evidencia" in SYSTEM_PROMPT
     with pytest.raises(ValidationError):
         ConfirmedBudgetQuotation.model_validate_json('{"projectId":"https://evil.test"}')
 
@@ -459,7 +460,7 @@ async def test_live_six_fresh_turns_fallback_and_unavailable_do_not_close(
         "La cotización tiene 3 ítems.",
         "La cotización registra 7 unidades en 3 ítems.",
         "El vidrio es Templado." if stage == "commercial" else "El vidrio es Laminado.",
-        "El total registrado es 98.1234.",
+        "El total registrado es 98.12.",
     ]
     turns = []
     for index in range(6):
@@ -524,7 +525,7 @@ async def test_live_six_fresh_turns_fallback_and_unavailable_do_not_close(
                 assert "Casa Ximena" in repr(messages)
     finally:
         await store.shutdown()
-    for private in (TOKEN, PROJECT_ID, "Casa Ximena", "98.1234", "Laminado"):
+    for private in (TOKEN, PROJECT_ID, "Casa Ximena", "98.12", "Laminado"):
         assert private not in caplog.text
 
 

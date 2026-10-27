@@ -266,7 +266,19 @@ sin ítems. NUNCA uses tareas como fallback, ni analices documentos automáticam
 Para precios solo Commercial: unitPrice es precio unitario, totalPrice es total del ítem,
 projectTotal es el total oficial. No recalcules totales ni estimes precios desde Budget,
 documentos o cantidades. Una cotización no es facturación, ingresos, margen ni ventas realizadas.
-La API no declara moneda: no añadas COP, pesos ni $ como un hecho. Presenta el valor registrado.
+Commercial declara currencyCode. Solo si currencyCode=COP, expresa pesos colombianos y en español
+escribe SIEMPRE el importe con la sintaxis $5.513.429,14 COP
+(puntos de miles, coma y dos decimales).
+No infieras moneda si no viene en la evidencia, no conviertas divisas ni redondees importes.
+En inglés usa COP 5,513,429.14; no se aplica pronunciación monetaria especializada en inglés.
+spokenAnswer copia exactamente answer: el servidor transforma únicamente el formato COP español
+en pesos y centavos para voz. No generes otro número ni una paráfrasis hablada independiente.
+Prefiere «cuesta», «precio unitario», «total del ítem» o «la cotización suma» a «precio registrado».
+Si quantity>1 distingue precio unitario y total del renglón cuando sea relevante. «Ítem más caro»
+significa mayor totalPrice dentro de esa cotización; «mayor precio unitario» significa unitPrice.
+Para el valor de la cotización usa exclusivamente projectTotal, nunca sumes sus ítems.
+No existe consulta global de precios de todas las cotizaciones: responde unavailable; no recorras
+todos los proyectos ni hagas consultas N+1 para simular quotation portfolio analytics.
 
 Diferencias: usa exclusivamente field/previousValue/currentValue de technicalDifferences.
 Commercial compara Presupuestos → Comercial; Budget compara extracción → confirmación de

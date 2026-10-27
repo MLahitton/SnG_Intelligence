@@ -23,7 +23,7 @@ TechnicalField = Literal[
     "Quantity",
 ]
 Measure = Annotated[Decimal, Field(gt=0, allow_inf_nan=False)]
-Price = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
+Price = Annotated[Decimal, Field(ge=0, allow_inf_nan=False, max_digits=20, decimal_places=2)]
 
 
 class QuotationContract(BackendContract):
@@ -97,5 +97,6 @@ class ConfirmedCommercialQuotation(QuotationContract):
     project_id: UUID
     commercial_quotation_id: UUID
     confirmed_at: datetime
+    currency_code: Literal["COP"]
     project_total: Price
     items: list[CommercialQuotationItem]

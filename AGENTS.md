@@ -1123,7 +1123,8 @@ small adapters; model/voice configuration is server-owned and never supplied by 
   failures remain errors. Absence is not a zero or empty quotation. No image download/XLSX parsing.
 - Project references remain the only navigation for quotations. No internal quotation/catalog
   IDs, image bytes, storage metadata or auth context enter the model. No new HTTP/UI contract.
-- No assumed currency, dimension units or aggregate square meters. Keep official per-item m²;
+- Currency must come from the Commercial currencyCode contract (COP in Money V1), never inference.
+  No assumed dimension units or aggregate square meters. Keep official per-item m²;
   no derivation from dimensions or multiplication by quantity without a proven contract.
 - Same Agent for text/basic voice/Live, fresh reads each turn; preserve grounding repair,
   credential lifecycle and payload limits. Oversized quotations fail safely, never truncate.
@@ -1163,3 +1164,17 @@ small adapters; model/voice configuration is server-owned and never supplied by 
     No RAG, cross-conversation recall, UI history or new decision-support response categories.
 12. Tests use FakeCompactor/mocked SDK. Opt-in PostgreSQL smoke creates/deletes an isolated synthetic
     cluster; never read the user's real DB URL. Scripted semantics are not real-model quality proof.
+
+
+## Money Contract V1
+
+- Backend owns COP currency and decimal normalization. Commercial requires currencyCode=COP
+  and nonnegative numeric(20,2)-compatible values; missing currency/excess fractional precision
+  fail safely. Never silently round, convert currency, recompute totals or change technical measures.
+- Preserve Decimal strings in model projection. Spanish answer uses explicit $5.513.429,14 COP;
+  deterministic speech alone expands that pattern to pesos/centavos, up to 18 integer digits.
+  Do not infer money from plain decimals, alter protected names or generate separate spoken facts.
+- English retains COP 5,513,429.14 without specialized pronunciation. No new speech dependency.
+- Highest item value means totalPrice unless explicitly asking for unitPrice; quotation value
+  means projectTotal. No portfolio-wide N+1 scans. Portfolio analytics remains unimplemented.
+- Long Context, Intelligence DB/migrations, Live lifecycle and fresh-evidence grounding unchanged.

@@ -1435,8 +1435,8 @@ Se revisaron `QuotationReadModels.cs`, `CatalogItemValues.cs`, los converters JS
 `CachedFormula_IsReadWithoutCalculationAndM2IsNotReconstructed` confirma que squareMeters
 conserva el valor del archivo y no se reconstruye a partir de ancho/alto. Los contratos revisados
 no prueban una regla universal de agregación con quantity. Esta fase muestra m² oficiales por
-ítem; no agrega `totalSquareMeters`. Tampoco afirma unidad de width/height ni moneda COP/$:
-no están declaradas en la vista. No se reparsea XLSX ni se consulta DB.
+ítem; no agrega `totalSquareMeters`. La unidad de width/height sigue sin estar declarada. Money Contract V1 incorpora moneda
+COP oficial en Commercial, como se describe abajo. No se reparsea XLSX ni se consulta DB.
 
 Se reutiliza `direct` con `presentation_keys=[]` y referencias verificadas al proyecto.
 Los ítems de cotización nunca se representan como TaskItem; no hay nuevas rutas ni contratos
@@ -1536,3 +1536,34 @@ Remove-Item Env:SNG_TEST_POSTGRES_BIN
 
 Sin esa variable, este único smoke se omite. La migración de la base real se ejecuta manualmente
 después de publicar; los tests no la migran ni llaman OpenAI real.
+
+
+## Money Contract V1 — COP oficial y voz
+
+La cotización comercial exige `currencyCode: "COP"` recibido de Backend. Se rechazan moneda
+ausente/desconocida e importes negativos, fuera de numeric(20,2) o con más de dos decimales
+significativos. No hay inferencia de moneda, conversión FX ni redondeo económico en Intelligence.
+La proyección conserva Decimal→string exacto para projectTotal, unitPrice y totalPrice;
+Budget y las medidas técnicas mantienen sus contratos.
+
+El prompt solicita en español `$5.513.429,14 COP`. El texto conserva ese formato y el renderer
+produce determinísticamente «cinco millones quinientos trece mil cuatrocientos veintinueve pesos
+con catorce centavos». Reconoce solamente el patrón explícito COP colombiano; omite centavos
+cuando son cero, usa singular cuando corresponde y cubre hasta 999999999999999999.99.
+No transforma decimales sueltos, medidas, cantidades ni nombres protegidos. La pronunciación
+existente de códigos SG permanece independiente. En inglés se conserva `COP 5,513,429.14`,
+sin conversión especializada a palabras. No se añade dependencia para números a palabras.
+
+`spokenAnswer` sigue derivando del mismo `answer`; el modelo no genera otra cifra para voz.
+Texto, Basic Voice y Live usan el mismo Agent/renderer. No cambian modelos Live, VAD, sideband,
+delegación, grounding ni Long Context V1; no hay migración de la base de Intelligence.
+
+«Ítem más caro» usa totalPrice dentro de una cotización; precio unitario explícito usa unitPrice.
+El valor de la cotización usa exclusivamente projectTotal, nunca una suma local. Queda fuera
+la consulta global sobre todas las cotizaciones: quotation portfolio analytics es una capacidad
+futura, no se simula recorriendo proyectos. Las pruebas usan datos sintéticos equivalentes al
+hallazgo, incluidas cifras grandes, límites, centavos, contratos inválidos y referencias frescas.
+
+Desplegar junto con Backend Money Contract V1 y su migración monetaria. Los parsers cerrados
+operacionales de Frontend también requieren el nuevo campo; se realizó su ajuste contractual
+mínimo para evitar 502 por campos adicionales. No se cambió su UI ni sus cálculos.

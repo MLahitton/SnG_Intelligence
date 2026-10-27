@@ -53,5 +53,6 @@ def quotation_data(
         data["document"] = quotation.document.model_dump(mode="json", by_alias=True)
         data["versionNumber"] = quotation.version_number
     else:
+        data["currencyCode"] = quotation.currency_code
         data["projectTotal"] = str(quotation.project_total)
     return data
