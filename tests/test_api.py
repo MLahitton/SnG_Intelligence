@@ -158,9 +158,11 @@ def test_only_explicit_routes_no_cors_or_proxy(settings, mock_backend):
         (path, method) for path, methods in app.openapi()["paths"].items() for method in methods
     } == {
         ("/health", "get"),
+        ("/readiness", "get"),
         ("/api/intelligence/session", "get"),
         ("/api/intelligence/chat", "post"),
         ("/api/intelligence/conversation", "post"),
+        ("/api/intelligence/conversation/resume", "post"),
         ("/api/intelligence/conversation/close", "post"),
         ("/api/intelligence/voice", "post"),
         ("/api/intelligence/voice/transcribe", "post"),

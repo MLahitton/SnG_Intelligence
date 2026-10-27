@@ -26,7 +26,7 @@ def check_context_text(text: str) -> None:
         r"\bBearer\s+\S+|\bsk-[A-Za-z0-9_-]{8,}|"
         r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|"
         r"(?:^|[\r\n])v=0(?:[\r\n]|$)|data:audio/|"
-        r"\b(?:OPENAI_API_KEY|SNG_SMOKE_GOOGLE_TOKEN|Authorization)\s*[:=]",
+        r"postgres(?:ql)?://|\b(?:OPENAI_API_KEY|SNG_SMOKE_GOOGLE_TOKEN|SNG_INTELLIGENCE_DATABASE_URL|Authorization)\s*[:=]",
         text,
         re.IGNORECASE,
     ):
@@ -116,3 +116,14 @@ class ConversationContext:
             }
             for message in messages
         ]
+
+
+MAX_CONTEXT_TURNS = 16
+MAX_CONTEXT_CHARACTERS = 16_000
+
+
+def build_context(turns: tuple[ConversationTurn, ...]) -> ConversationContext:
+    recent = turns[-MAX_CONTEXT_TURNS:]
+    while recent and ConversationContext(recent).characters > MAX_CONTEXT_CHARACTERS:
+        recent = recent[1:]
+    return ConversationContext(recent)

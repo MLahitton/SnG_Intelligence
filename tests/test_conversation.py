@@ -1,6 +1,5 @@
 import asyncio
 import json
-from dataclasses import fields
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -8,6 +7,7 @@ import httpx
 import openai
 import pytest
 from conftest import PROJECT_ID, TOKEN
+from conversation_repository import MemoryRepository
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from test_agent import FakeModel, call, final
@@ -20,16 +20,13 @@ from test_sideband import begin, complete, function, until
 from app.agent.contracts import ChatResponse, ModelMessage, ProjectReference
 from app.agent.errors import ProviderTimeout
 from app.agent.openai_model import OpenAIModel
-from app.conversation import store as store_module
 from app.conversation.context import ConversationContext, ConversationTurn
 from app.conversation.store import (
     ConversationBusy,
-    ConversationCapacity,
     ConversationForbidden,
     ConversationStore,
     ConversationUnavailable,
 )
-from app.core.config import ConfigurationError, Settings
 from app.live.credentials import LiveCredentialContext
 from app.live.executor import LiveAgentExecutor
 from app.live.provider import OpenAILiveProvider
@@ -44,56 +41,47 @@ def turn(text="previous answer", question="previous question", references="[]", 
 
 
 @pytest.mark.anyio
-async def test_store_bounds_owner_close_and_shutdown(monkeypatch):
-    store = ConversationStore()
-    entry = store.create("manager")
+async def test_durable_history_context_bounds_owner_close_and_shutdown():
+    repository = MemoryRepository()
+    store = ConversationStore(repository)
+    entry = await store.resume("manager")
     key = entry.conversation_id
-    assert len(key) == 43 and entry.expires_at > entry.created_at
-    assert set(f.name for f in fields(entry)) == {
-        "conversation_id",
-        "subject",
-        "created_at",
-        "last_activity_at",
-        "expires_at",
-        "turns",
-    }
+    assert len(key) == 43
+    assert (await store.resume("manager")).conversation_id == key
     with pytest.raises(ConversationForbidden):
-        store.owned(key, "other")
+        await store.owned(key, "other")
     with pytest.raises(ConversationUnavailable):
-        store.owned("x" * 43, "manager")
-    store.create("manager")
-    store.create("manager")
-    with pytest.raises(ConversationCapacity):
-        store.create("manager")
-    monkeypatch.setattr(store_module, "MAX_CONVERSATIONS", 3)
-    with pytest.raises(ConversationCapacity):
-        store.create("other")
+        await store.owned("x" * 43, "manager")
     async with store.operation(key, "manager"):
         for i in range(20):
-            store.append(key, "manager", turn(str(i)))
-    assert len(entry.turns) == 16 and entry.turns[0].assistant_content == "4"
-    async with store.operation(key, "manager"):
-        store.append(key, "manager", turn("a" * 15_000))
-    assert ConversationContext(entry.turns).characters <= 16_000
-    async with store.operation(key, "manager"):
-        store.append(key, "manager", turn("b" * 16_001))
-    assert entry.turns == ()  # Whole turn eviction, no silent prose truncation.
-    await store.close(key, "manager")
-    await store.close(key, "manager")
-    with pytest.raises(ConversationForbidden):
-        await store.close(key, "other")
-    with pytest.raises(ConversationUnavailable):
-        store.owned(key, "manager")
+            await store.append(key, "manager", turn(str(i)))
+    async with store.operation(key, "manager") as context:
+        assert len(context.turns) == 16 and context.turns[0].assistant_content == "4"
+        await store.append(key, "manager", turn("a" * 15_000))
+    async with store.operation(key, "manager") as context:
+        assert context.characters <= 16_000
+        await store.append(key, "manager", turn("b" * 16_001))
+    async with store.operation(key, "manager") as context:
+        assert context.turns == ()
+    assert len(await repository.list_turns(key, "manager")) == 22
     await store.shutdown()
-    assert not store._entries and not store._runtime and not store._live
-    with pytest.raises(ConversationUnavailable):
-        store.create("manager")
+    assert not store._runtime and not store._live
+    restarted = ConversationStore(repository)
+    assert (await restarted.resume("manager")).conversation_id == key
+    assert len(await repository.list_turns(key, "manager")) == 22
+    await restarted.close(key, "manager")
+    await restarted.close(key, "manager")
+    with pytest.raises(ConversationForbidden):
+        await restarted.close(key, "other")
+    assert (await restarted.resume("manager")).conversation_id != key
+    assert len(await repository.list_turns(key, "manager")) == 22
+    await restarted.shutdown()
 
 
 @pytest.mark.anyio
 async def test_concurrency_order_close_cancels_active_and_waiting_operations():
-    store = ConversationStore()
-    entry = store.create("manager")
+    store = ConversationStore(MemoryRepository())
+    entry = await store.create("manager")
     key = entry.conversation_id
     started = asyncio.Event()
 
@@ -101,21 +89,25 @@ async def test_concurrency_order_close_cancels_active_and_waiting_operations():
         async with store.operation(key, "manager"):
             started.set()
             await asyncio.Event().wait()
-            store.append(key, "manager", turn("must not commit"))
+            await store.append(key, "manager", turn("must not commit"))
 
     first = asyncio.create_task(blocked())
     await started.wait()
     second = asyncio.create_task(blocked())
     await asyncio.sleep(0)
     await store.close(key, "manager")
-    assert first.cancelled() and second.cancelled() and entry.turns == ()
+    assert (
+        first.cancelled()
+        and second.cancelled()
+        and store.repository.turns[entry.conversation_id] == ()
+    )
     await store.shutdown()
 
 
 @pytest.mark.anyio
 async def test_serialized_chat_sideband_context_and_live_blocks_new_text():
-    store = ConversationStore()
-    entry = store.create("manager")
+    store = ConversationStore(MemoryRepository())
+    entry = await store.create("manager")
     key = entry.conversation_id
     seen = []
 
@@ -123,11 +115,11 @@ async def test_serialized_chat_sideband_context_and_live_blocks_new_text():
         async with store.operation(key, "manager", live=True) as context:
             seen.append(len(context.turns))
             await asyncio.sleep(0)
-            store.append(key, "manager", turn(str(i), modality="voice" if i else "text"))
+            await store.append(key, "manager", turn(str(i), modality="voice" if i else "text"))
 
     await asyncio.gather(*(add(i) for i in range(5)))
     assert seen == [0, 1, 2, 3, 4]
-    store.bind_live(SESSION, key, "manager")
+    await store.bind_live(SESSION, key, "manager")
     with pytest.raises(ConversationBusy):
         async with store.operation(key, "manager"):
             pytest.fail("Text cannot race an active Live session")
@@ -138,40 +130,23 @@ async def test_serialized_chat_sideband_context_and_live_blocks_new_text():
 
 
 @pytest.mark.anyio
-async def test_expiry_background_clears_history_and_closes_live(monkeypatch):
-    store = ConversationStore(1)
-    entry = store.create("manager")
+async def test_shutdown_closes_live_without_closing_history():
+    repository = MemoryRepository()
+    store = ConversationStore(repository)
+    entry = await store.create("manager")
     async with store.operation(entry.conversation_id, "manager"):
-        store.append(entry.conversation_id, "manager", turn())
-    closed = asyncio.Event()
+        await store.append(entry.conversation_id, "manager", turn())
+    closed = []
 
     async def close_live(session):
-        assert session == SESSION
-        closed.set()
+        closed.append(session)
 
     store.close_live = close_live
-    store.bind_live(SESSION, entry.conversation_id, "manager")
-    await asyncio.wait_for(closed.wait(), 2)
-    with pytest.raises(ConversationUnavailable):
-        store.owned(entry.conversation_id, "manager")
-    assert entry.turns == ()
+    await store.bind_live(SESSION, entry.conversation_id, "manager")
     await store.shutdown()
-
-
-@pytest.mark.parametrize("value", ["0", "3601", "bad", "1.5"])
-def test_invalid_ttl_safe(monkeypatch, value):
-    monkeypatch.setenv("SNG_CONTROL_BASE_URL", "https://control.test")
-    monkeypatch.setenv("SNG_INTELLIGENCE_CONVERSATION_TTL_SECONDS", value)
-    with pytest.raises(ConfigurationError):
-        Settings.from_env()
-
-
-def test_default_and_configured_ttl(monkeypatch):
-    monkeypatch.setenv("SNG_CONTROL_BASE_URL", "https://control.test")
-    monkeypatch.delenv("SNG_INTELLIGENCE_CONVERSATION_TTL_SECONDS", raising=False)
-    assert Settings.from_env().conversation_ttl_seconds == 1800
-    monkeypatch.setenv("SNG_INTELLIGENCE_CONVERSATION_TTL_SECONDS", "3600")
-    assert Settings.from_env().conversation_ttl_seconds == 3600
+    assert closed == [SESSION]
+    assert (await repository.get(entry.conversation_id, "manager")).closed_at is None
+    assert len(await repository.list_turns(entry.conversation_id, "manager")) == 1
 
 
 def test_chat_context_refresh_and_failure_no_commit(settings, mock_backend, payloads, caplog):
@@ -198,8 +173,9 @@ def test_chat_context_refresh_and_failure_no_commit(settings, mock_backend, payl
             )
             assert result.status_code == 200
             payloads["/api/management/overview"]["totalProjects"] = 20
-        entry = app.state.conversations.owned(key, "manager")
-        assert len(entry.turns) == 2
+        store = app.state.conversations
+        entry = store.repository.entries[key]
+        assert len(store.repository.turns[entry.conversation_id]) == 2
         assert sum(c["path"] == "/api/management/overview" for c in calls) == 2
         history = model.inputs[2][0]
         assert [m.role for m in history] == ["developer", "user", "assistant", "assistant", "user"]
@@ -212,12 +188,18 @@ def test_chat_context_refresh_and_failure_no_commit(settings, mock_backend, payl
                 json={"message": "Ahora?", "conversationId": key},
                 headers=AUTH,
             )
-            assert result.status_code == expected and len(entry.turns) == 2
+            assert (
+                result.status_code == expected
+                and len(store.repository.turns[entry.conversation_id]) == 2
+            )
         assert (
             api.post("/api/intelligence/chat", json={"message": "Solo"}, headers=AUTH).status_code
             == 200
         )
-        assert len(model.inputs[-1][0]) == 1 and len(entry.turns) == 2
+        assert (
+            len(model.inputs[-1][0]) == 1
+            and len(store.repository.turns[entry.conversation_id]) == 2
+        )
         assert (
             api.post(BASE + "/close", json={"conversationId": key}, headers=AUTH).status_code == 200
         )
@@ -269,7 +251,7 @@ def test_creation_management_only(settings, mock_backend, payloads):
     payloads["/api/auth/me"]["isManagement"] = False
     with TestClient(chat_app(settings, transport, FakeModel())) as api:
         assert api.post(BASE, json={}, headers=AUTH).status_code == 403
-        assert not api.app.state.conversations._entries
+        assert not api.app.state.conversations.repository.entries
 
 
 @pytest.mark.anyio
@@ -317,8 +299,12 @@ async def test_voice_commit_once_before_output_and_live_close_preserves_context(
     from contextlib import asynccontextmanager
 
     transport, _ = mock_backend
-    store, registry, vault = ConversationStore(), LiveRegistry(), LiveCredentialContext()
-    entry = store.create("manager")
+    store, registry, vault = (
+        ConversationStore(MemoryRepository()),
+        LiveRegistry(),
+        LiveCredentialContext(),
+    )
+    entry = await store.create("manager")
     key = entry.conversation_id
     model = FakeModel(
         call("get_project_details", {"project_id": PROJECT_ID}),
@@ -343,13 +329,13 @@ async def test_voice_commit_once_before_output_and_live_close_preserves_context(
         vault.capture(
             SESSION, SecretStr(TOKEN), "manager", registry.owned(SESSION, "manager").expires_at
         )
-        store.bind_live(SESSION, key, "manager")
+        await store.bind_live(SESSION, key, "manager")
         await manager.attach(SESSION, "manager", provider, "test-id")
         original = provider.socket.send
 
         async def send(event):
             if event["type"] == "response.item.create":
-                assert len(entry.turns) == 1
+                assert len(store.repository.turns[entry.conversation_id]) == 1
             await original(event)
 
         provider.socket.send = send
@@ -358,11 +344,19 @@ async def test_voice_commit_once_before_output_and_live_close_preserves_context(
         provider.socket.incoming.put_nowait(function())
         complete(provider.socket)
         await until(lambda: any(e["type"] == "response.create" for e in provider.socket.sent))
-        assert len(entry.turns) == 1 and entry.turns[0].modality == "voice"
-        assert json.loads(entry.turns[0].references)[0]["projectId"] == PROJECT_ID
+        assert (
+            len(store.repository.turns[entry.conversation_id]) == 1
+            and store.repository.turns[entry.conversation_id][0].modality == "voice"
+        )
+        assert (
+            json.loads(store.repository.turns[entry.conversation_id][0].references)[0]["projectId"]
+            == PROJECT_ID
+        )
         await manager.close(SESSION, "manager")
-        assert store.owned(key, "manager").turns and store.conversation_for_live(SESSION) is None
-        assert TOKEN not in repr(entry) + str(ConversationContext(entry.turns).live_input())
+        assert store.repository.turns[key] and store.conversation_for_live(SESSION) is None
+        assert TOKEN not in repr(entry) + str(
+            ConversationContext(store.repository.turns[entry.conversation_id]).live_input()
+        )
         await store.shutdown()
         await manager.shutdown()
 
@@ -398,7 +392,7 @@ def test_live_binding_close_reopen_and_rollback(settings, mock_backend):
         )
         assert provider.socket.closed and not app.state.live_sidebands._runs
         assert app.state.live_credentials._LiveCredentialContext__items == {}
-        assert not app.state.conversations._entries
+        assert app.state.conversations.repository.entries[key].closed_at is not None
 
 
 @pytest.mark.parametrize(
@@ -430,7 +424,7 @@ def test_ordered_voice_references_and_active_project_refresh(
                     references=[first, second],
                     presentation={"kind": "direct", "metric": None},
                 )
-                app.state.conversations.append(
+                await app.state.conversations.append(
                     key, "manager", ConversationTurn.completed("voice", "Proyectos?", result)
                 )
 
@@ -473,7 +467,7 @@ def test_sensitive_content_never_retained_or_sent_to_model(
         )
         assert result.status_code >= 400
         assert not model.inputs
-        assert app.state.conversations.owned(key, "manager").turns == ()
+        assert app.state.conversations.repository.turns[key] == ()
         assert content not in result.text + caplog.text
 
 
@@ -482,8 +476,12 @@ async def test_close_associated_live_cancels_delegation_and_suppresses_output(mo
     from contextlib import asynccontextmanager
 
     transport, _ = mock_backend
-    store, registry, vault = ConversationStore(), LiveRegistry(), LiveCredentialContext()
-    entry = store.create("manager")
+    store, registry, vault = (
+        ConversationStore(MemoryRepository()),
+        LiveRegistry(),
+        LiveCredentialContext(),
+    )
+    entry = await store.create("manager")
     started = asyncio.Event()
 
     class WaitingModel:
@@ -510,14 +508,14 @@ async def test_close_associated_live_cancels_delegation_and_suppresses_output(mo
         vault.capture(
             SESSION, SecretStr(TOKEN), "manager", registry.owned(SESSION, "manager").expires_at
         )
-        store.bind_live(SESSION, entry.conversation_id, "manager")
+        await store.bind_live(SESSION, entry.conversation_id, "manager")
         await manager.attach(SESSION, "manager", provider, "safe-request-id")
         begin(provider.socket)
         provider.socket.incoming.put_nowait(function())
         complete(provider.socket)
         await asyncio.wait_for(started.wait(), 2)
         await asyncio.wait_for(store.close(entry.conversation_id, "manager"), 2)
-        assert not entry.turns and provider.socket.closed
+        assert not store.repository.turns[entry.conversation_id] and provider.socket.closed
         assert not vault._LiveCredentialContext__items and not manager._runs
         assert all(event["type"] == "session.close" for event in provider.socket.sent)
         await store.shutdown()
@@ -542,7 +540,7 @@ def test_attach_failure_does_not_clear_conversation_but_removes_binding(settings
             "/api/intelligence/live/session", json={"sdp": SDP, "conversationId": key}, headers=AUTH
         )
         assert result.status_code >= 400
-        assert app.state.conversations.owned(key, "manager")
+        assert app.state.conversations.repository.entries[key].closed_at is None
         assert not app.state.conversations._live
         assert not app.state.live_credentials._LiveCredentialContext__items
 
@@ -618,8 +616,12 @@ def test_offline_text_to_live_to_text_and_reopen(settings, mock_backend, payload
             await until(lambda: any(e["type"] == "response.create" for e in provider.socket.sent))
 
         api.portal.call(delegate)
-        entry = app.state.conversations.owned(key, "manager")
-        assert [t.modality for t in entry.turns] == ["text", "voice"]
+        store = app.state.conversations
+        entry = store.repository.entries[key]
+        assert [t.modality for t in store.repository.turns[entry.conversation_id]] == [
+            "text",
+            "voice",
+        ]
         assert "Casa Ximena" in repr(voice_model.inputs[0][0])
         assert (
             api.post(

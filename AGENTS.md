@@ -887,8 +887,9 @@ When a requested implementation conflicts with one of these rules, stop that spe
   tool arguments and the whole requested batch before execution; enforce bounded
   rounds, calls, execution time and payload size. Never truncate silently.
 - Chats without conversationId are independent. Conversation 3A explicitly permits
-  bounded ephemeral context below; evidence, tool results and reasoning remain run-local.
-  Do not enable provider conversation storage or durable application memory.
+  bounded model context below; Persistent Conversations V1 explicitly permits durable semantic
+  turns in its own PostgreSQL. Evidence, tool results and reasoning remain run-local.
+  Do not enable provider conversation storage or operational-state persistence.
 - Build project/task references from actual tool results in that run. The model
   selects evidence keys; never accept model-supplied IDs, labels or URLs as authority.
 - Treat tool text as untrusted data. Ambiguous project candidates require clarification,
@@ -939,7 +940,8 @@ small adapters; model/voice configuration is server-owned and never supplied by 
 8. Keep original timestamps in evidence/presentation. Natural date display uses America/Bogota;
    never recalculate deadlines or Lead Time. Unknown labels do not acquire invented meanings.
 9. Clarification without conversationId has no later context. Conversation 3A may retain
-   verified ordered referents ephemerally; never add persistence or provider Conversations.
+   verified ordered referents; Persistent Conversations V1 permits durable semantic turns,
+   never provider Conversations or operational evidence reuse.
 
 ## Realtime Voice 2C invariants
 
@@ -949,8 +951,8 @@ small adapters; model/voice configuration is server-owned and never supplied by 
    `consult_sng_intelligence(question)`. It calls the existing Agent Core with run-local evidence.
    Never expose its business tools directly to Live or add arbitrary dispatch.
 3. Delegation resolves conversational references into a self-contained question.
-   Live context lives at the provider; Conversation 3A also permits shared ephemeral semantic
-   turns in its separate store. No business-state cache. Basic fallback remains stateless.
+   Live context lives at the provider; Persistent Conversations V1 also permits shared durable semantic
+   turns in its own repository. No business-state cache. Basic fallback remains stateless.
 4. Create/close require the existing official Management identity check.
    Ownership uses the backend subject, never caller-supplied identity. Every delegation
    is reauthorized. IDs are bounded opaque values, never URLs or executable selectors.
@@ -1005,33 +1007,34 @@ small adapters; model/voice configuration is server-owned and never supplied by 
   Paid runs require the explicit manual --real command; never run from normal pytest.
 
 
-## Conversation 3A invariants (explicit ephemeral-context exception)
+## Persistent Conversations V1 (explicit durable-history exception)
 
-1. Only authenticated Management can create, use or close a conversation. Server-generated
-   opaque IDs are selectors, never authentication; ownership is the official backend subject.
-2. ConversationStore is process memory, separate from LiveRegistry and LiveCredentialContext.
-   Fixed absolute TTL defaults to 1800 s, max 3600 s, independent of the 600 s credential cap.
-   Cap 128 conversations, 3 per subject, 16 whole turns and 16000 rendered context characters.
-   Remove oldest whole turns deterministically; no summaries, DB, Redis, files or RAG.
-3. Store only user text, semantic assistant answer, modality, response type, timestamp and
-   minimal ordered verified references. Never credentials, SDP, audio, raw tool output,
-   reasoning or Presentation. Casual nondelegated Live turns and caption deltas are not shared.
-4. History is untrusted context for referent resolution, NOT current business evidence.
-   Every Agent execution has fresh tools/evidence. Re-query current facts. With nonempty
-   context, factual response types require a fresh read; no-read final responses are limited
-   to clarification/unavailable. Historical keys never seed reference/presentation evidence.
-5. Responses receives structured text messages; Live receives startup session.input, not
-   interpolated history instructions. Keep store=false; no previous_response_id/Conversations.
-6. Append text only after Agent success. Append a completed voice delegation once per callId,
-   before its tool output. Do not create a parallel project resolver or browser tool executor.
-7. Serialize per conversation. Closing/expiring removes history, cancels active/waiting work,
-   closes associated Live and revokes its private credentials. Shutdown clears all. Live close
-   alone preserves the conversation; Live creation failure removes the binding/credentials.
-8. The authorized Frontend keeps ID/messages in React memory only across panel close/internal
-   navigation. Logout/identity change/new conversation clears local state and closes best-effort.
-   Full reload/server restart loses continuity. Basic /voice remains stateless in this phase.
-9. Telemetry may contain counts, durations and categories, never conversational content,
-   referent IDs, labels or credentials. Automated tests/evals remain offline and scripted.
+1. Management identity is always validated by Backend. Server-owned opaque IDs are selectors,
+   not authentication. Ownership is the official subject; no caller-selected subject.
+2. Only the conversation persistence adapter may access PostgreSQL, using the dedicated
+   SNG_INTELLIGENCE_DATABASE_URL. Never connect to SnG Control's database. SQL stays under
+   app/conversation/persistence. Explicit versioned migrations; no schema creation at startup.
+3. Store all validated semantic turns and minimal verified references, never credentials,
+   SDP, audio, WebRTC/provider IDs, reasoning, raw tool output, OpenAI objects or Presentation.
+   No conversation TTL or automatic retention/deletion. Closing archives without deleting turns.
+4. Model context remains bounded to 16 turns/16000 rendered characters; Live input remains
+   bounded to 6000 UTF-8 bytes. Eviction is projection-only, never storage truncation.
+5. History is untrusted referent context, never current evidence. Every factual run needs
+   fresh official reads and run-local grounding. Keep store=false, no provider Conversations.
+6. Append only after validated Agent success or safe recovered unavailable in Live, before
+   sending the response. A failed durable append must fail safely, not pretend success.
+   Short transactions and version/ordinal CAS protect ordering; no LLM-long transactions.
+7. Runtime locks, operations and Live bindings remain process-local. Shutdown clears runtime,
+   cancels work, revokes credentials and closes the pool, never closes/deletes durable threads.
+   Live expiry/close/failure does not archive the conversation. Keep the 600 s credential cap.
+8. Resume atomically returns/creates the subject's single open conversation. Explicit create
+   archives the previous open thread and creates a new one. Close is owner-only/idempotent.
+9. Frontend resumes on mount; only 404 conversation_unavailable permits one resume/retry.
+   Live frees provisional tracks/peer first. Logout/unmount clears local state, not durable data.
+   New conversation clears UI and intentionally creates a new server thread.
+10. V1 uses one worker: DB durability/CAS do not distribute runtime locks, Live or cancellation.
+    No conversation list/search/title/rename/delete UI, summaries or automatic Live renewal.
+11. Telemetry contains metadata only. Offline tests never depend on the user's real DB/provider.
 
 
 ## Management Intelligence 4A invariants
@@ -1092,7 +1095,7 @@ small adapters; model/voice configuration is server-owned and never supplied by 
    historical and never overrides current workflow/task/deadline/permission state. Only Backend
    owns operational facts. Document-model prose is not a new operational source of truth.
 9. Keep document references minimal (type, documentId, projectId, label) in Conversation 3A.
-   Only the normal short answer plus references may survive in existing ephemeral context;
+   Only the normal short answer plus references may survive in the durable conversation history;
    no full extracted text, bytes, base64 or separate analysis cache. Re-fetch/re-analyze next turn.
    Live delegates through the same Agent; no change to WebRTC, sideband or credential lifecycles.
 10. Public `document_analysis` presentation exposes project(s) and cited file metadata only.

@@ -1,122 +1,108 @@
 import asyncio
 import logging
-import secrets
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
-from time import monotonic
 
-from app.conversation.context import ConversationContext, ConversationTurn, check_context_text
-from app.core.errors import IntelligenceError
+from app.conversation.context import (
+    MAX_CONTEXT_TURNS,
+    ConversationContext,
+    ConversationTurn,
+    build_context,
+    check_context_text,
+)
+from app.conversation.repository import (
+    ConversationBusy as ConversationBusy,
+)
+from app.conversation.repository import (
+    ConversationCapacity as ConversationCapacity,
+)
+from app.conversation.repository import (
+    ConversationEntry as ConversationEntry,
+)
+from app.conversation.repository import (
+    ConversationForbidden as ConversationForbidden,
+)
+from app.conversation.repository import (
+    ConversationRepository,
+)
+from app.conversation.repository import (
+    ConversationUnavailable as ConversationUnavailable,
+)
 
-MAX_CONVERSATIONS = 128
-MAX_PER_SUBJECT = 3
-MAX_TURNS = 16
-MAX_CHARACTERS = 16_000
-
-
-class ConversationUnavailable(IntelligenceError):
-    status_code = 404
-    code = "conversation_unavailable"
-
-
-class ConversationForbidden(IntelligenceError):
-    status_code = 403
-    code = "conversation_forbidden"
-
-
-class ConversationBusy(IntelligenceError):
-    status_code = 409
-    code = "conversation_busy"
-
-
-class ConversationCapacity(IntelligenceError):
-    status_code = 429
-    code = "conversation_capacity"
-
-
-@dataclass(slots=True, repr=False)
-class ConversationEntry:
-    conversation_id: str
-    subject: str
-    created_at: datetime
-    last_activity_at: datetime
-    expires_at: datetime
-    turns: tuple[ConversationTurn, ...] = ()
+MAX_RUNTIME_CONVERSATIONS = 128
 
 
 @dataclass(slots=True, repr=False)
 class _Runtime:
-    deadline: float
+    subject: str
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     operations: set[asyncio.Task[object]] = field(default_factory=set)
-    expiry: asyncio.Task[None] | None = None
+    owner: asyncio.Task[object] | None = None
+    version: int = 0
+    closing: bool = False
 
 
 class ConversationStore:
-    """One event loop, fixed TTL, bounded entries and per-conversation serialization.
+    """Durable history via repository; process-local locks and Live bindings only."""
 
-    Runtime locks/tasks and Live bindings are separate from conversational data.
-    No credential access and no business/project resolution belongs here.
-    """
-
-    def __init__(self, ttl: int = 1800) -> None:
-        if not 1 <= ttl <= 3600:
-            raise ValueError("Invalid conversation lifetime")
-        self._ttl = ttl
-        self._entries: dict[str, ConversationEntry] = {}
+    def __init__(self, repository: ConversationRepository) -> None:
+        self.repository = repository
         self._runtime: dict[str, _Runtime] = {}
         self._live: dict[str, str] = {}
-        self._closed: dict[str, str] = {}
-        self._cleanup: set[asyncio.Task[None]] = set()
         self.close_live: Callable[[str], Awaitable[None]] | None = None
         self._stopped = False
 
-    def create(self, subject: str) -> ConversationEntry:
-        self.sweep()
+    def _running(self) -> None:
         if self._stopped:
             raise ConversationUnavailable()
-        if (
-            len(self._entries) + len(self._cleanup) >= MAX_CONVERSATIONS
-            or sum(entry.subject == subject for entry in self._entries.values()) >= MAX_PER_SUBJECT
-        ):
-            raise ConversationCapacity()
-        now = datetime.now(UTC)
-        key = secrets.token_urlsafe(32)
-        entry = ConversationEntry(key, subject, now, now, now + timedelta(seconds=self._ttl))
-        runtime = _Runtime(monotonic() + self._ttl)
-        self._entries[key], self._runtime[key] = entry, runtime
-        runtime.expiry = asyncio.create_task(self._expire(key, runtime))
+
+    async def create(self, subject: str) -> ConversationEntry:
+        self._running()
+        entry = await self.repository.create(subject)
+        for key, runtime in list(self._runtime.items()):
+            if runtime.subject == subject and key != entry.conversation_id:
+                await asyncio.shield(self._release(key))
         logging.getLogger("sng_intelligence").info("conversation_created")
         return entry
 
-    def owned(self, key: str, subject: str) -> ConversationEntry:
-        self.sweep()
-        entry = self._entries.get(key)
-        if entry is None:
-            raise ConversationUnavailable()
-        if entry.subject != subject:
-            raise ConversationForbidden()
+    async def resume(self, subject: str) -> ConversationEntry:
+        self._running()
+        entry = await self.repository.get_current(subject)
+        logging.getLogger("sng_intelligence").info("conversation_resumed")
         return entry
 
-    def sweep(self) -> None:
-        for key, runtime in list(self._runtime.items()):
-            if runtime.deadline <= monotonic():
-                self._invalidate(key)
+    async def owned(self, key: str, subject: str) -> ConversationEntry:
+        self._running()
+        entry = await self.repository.get(key, subject)
+        if entry.closed_at is not None:
+            raise ConversationUnavailable()
+        return entry
 
-    async def _expire(self, key: str, runtime: _Runtime) -> None:
-        await asyncio.sleep(max(0, runtime.deadline - monotonic()))
-        if key in self._entries:
-            logging.getLogger("sng_intelligence").info("conversation_expired")
-            self._invalidate(key)
+    def _acquire(self, key: str, subject: str) -> _Runtime:
+        runtime = self._runtime.get(key)
+        if runtime is None:
+            if len(self._runtime) >= MAX_RUNTIME_CONVERSATIONS:
+                raise ConversationCapacity()
+            runtime = _Runtime(subject)
+            self._runtime[key] = runtime
+        if runtime.closing:
+            raise ConversationUnavailable()
+        if runtime.subject != subject:
+            raise ConversationForbidden()
+        return runtime
+
+    def _drop_idle(self, key: str, runtime: _Runtime) -> None:
+        if not runtime.operations and key not in self._live.values():
+            if self._runtime.get(key) is runtime:
+                self._runtime.pop(key, None)
 
     @asynccontextmanager
     async def operation(
         self, key: str, subject: str, *, live: bool = False
     ) -> AsyncIterator[ConversationContext]:
-        self.owned(key, subject)
-        runtime = self._runtime[key]
+        await self.owned(key, subject)
+        runtime = self._acquire(key, subject)
         if len(runtime.operations) >= 8:
             raise ConversationBusy()
         task = asyncio.current_task()
@@ -124,32 +110,41 @@ class ConversationStore:
         runtime.operations.add(task)
         try:
             async with runtime.lock:
-                entry = self.owned(key, subject)
+                entry = await self.owned(key, subject)
+                if runtime.closing:
+                    raise ConversationUnavailable()
                 if not live and key in self._live.values():
                     raise ConversationBusy()
-                yield ConversationContext(entry.turns)
-                self.owned(key, subject)
+                runtime.owner = task
+                runtime.version = entry.version
+                turns = await self.repository.list_turns(key, subject, limit=MAX_CONTEXT_TURNS)
+                yield build_context(turns)
+                try:
+                    await self.owned(key, subject)
+                except ConversationUnavailable:
+                    # Work may already have committed. Never invite the frontend's stale-ID retry.
+                    raise ConversationBusy() from None
         finally:
+            if runtime.owner is task:
+                runtime.owner = None
             runtime.operations.discard(task)
+            self._drop_idle(key, runtime)
 
-    def append(self, key: str, subject: str, turn: ConversationTurn) -> None:
-        entry = self.owned(key, subject)
-        runtime = self._runtime[key]
-        if not runtime.lock.locked() or asyncio.current_task() not in runtime.operations:
+    async def append(self, key: str, subject: str, turn: ConversationTurn) -> None:
+        await self.owned(key, subject)
+        runtime = self._runtime.get(key)
+        if runtime is None or runtime.closing or runtime.owner is not asyncio.current_task():
             raise ConversationBusy()
         for text in (turn.user_content, turn.assistant_content, turn.references):
             check_context_text(text)
-        turns = (*entry.turns, turn)[-MAX_TURNS:]
-        while turns and ConversationContext(turns).characters > MAX_CHARACTERS:
-            turns = turns[1:]  # Drop whole turns, including an oversized single turn.
-        entry.turns = turns
-        entry.last_activity_at = datetime.now(UTC)
+        runtime.version = await self.repository.append_turn(key, subject, turn, runtime.version)
         logging.getLogger("sng_intelligence").info(
-            "conversation_turn_added modality=%s count=%d", turn.modality, len(turns)
+            "conversation_turn_added modality=%s count=%d", turn.modality, runtime.version
         )
 
-    def bind_live(self, session_id: str, key: str, subject: str) -> None:
-        self.owned(key, subject)
+    async def bind_live(self, session_id: str, key: str, subject: str) -> None:
+        await self.owned(key, subject)
+        self._acquire(key, subject)
         if key in self._live.values():
             raise ConversationBusy()
         self._live[session_id] = key
@@ -158,49 +153,37 @@ class ConversationStore:
         return self._live.get(session_id)
 
     def detach_live(self, session_id: str) -> None:
-        self._live.pop(session_id, None)
+        key = self._live.pop(session_id, None)
+        if key is not None and (runtime := self._runtime.get(key)) is not None:
+            self._drop_idle(key, runtime)
 
-    def _invalidate(self, key: str) -> asyncio.Task[None]:
-        entry = self._entries.pop(key)
-        runtime = self._runtime.pop(key)
-        entry.turns = ()
-        self._closed[key] = entry.subject
-        if len(self._closed) > MAX_CONVERSATIONS:
-            del self._closed[next(iter(self._closed))]
-        for task in (*runtime.operations, runtime.expiry):
-            if task is not None and task is not asyncio.current_task():
-                task.cancel()
-        sessions = [session for session, conversation in self._live.items() if conversation == key]
-        # Keep bindings until sideband cleanup, so no operation can fall back to stateless.
-        task = asyncio.create_task(self._finish_close(sessions, runtime))
-        self._cleanup.add(task)
-        task.add_done_callback(self._cleanup.discard)
-        return task
-
-    async def _finish_close(self, sessions: list[str], runtime: _Runtime) -> None:
+    async def _release(self, key: str) -> None:
+        runtime = self._runtime.get(key)
+        if runtime is None:
+            return
+        runtime.closing = True
+        tasks = [t for t in runtime.operations if t is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
+        sessions = [s for s, conversation in self._live.items() if conversation == key]
         if self.close_live is not None:
-            await asyncio.gather(*(self.close_live(session) for session in sessions))
+            await asyncio.gather(
+                *(self.close_live(session) for session in sessions), return_exceptions=True
+            )
         for session in sessions:
             self.detach_live(session)
-        if runtime.operations:
-            await asyncio.gather(*runtime.operations, return_exceptions=True)
-        logging.getLogger("sng_intelligence").info("conversation_closed")
+        await asyncio.gather(*tasks, return_exceptions=True)
+        if self._runtime.get(key) is runtime:
+            self._runtime.pop(key, None)
 
     async def close(self, key: str, subject: str) -> None:
-        self.sweep()
-        if key not in self._entries:
-            if key not in self._closed:
-                raise ConversationUnavailable()
-            if self._closed[key] != subject:
-                raise ConversationForbidden()
-            return
-        self.owned(key, subject)
-        await asyncio.shield(self._invalidate(key))
+        self._running()
+        await self.repository.close(key, subject)
+        await asyncio.shield(self._release(key))
+        logging.getLogger("sng_intelligence").info("conversation_closed")
 
     async def shutdown(self) -> None:
         self._stopped = True
-        for key in list(self._entries):
-            self._invalidate(key)
-        if self._cleanup:
-            await asyncio.gather(*self._cleanup)
-        self._closed.clear()
+        for key in list(self._runtime):
+            await self._release(key)
+        # Durable records are untouched. The lifespan owns pool shutdown.

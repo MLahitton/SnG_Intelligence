@@ -13,11 +13,12 @@ dependencies = [
   "httpx>=0.28,<1",
   "truststore>=0.10.4,<1",
   "openai>=2,<3",
-  "uvicorn>=0.34,<1",
+  "uvicorn>=0.36,<1",
   "python-dotenv>=1,<2",
   "python-multipart>=0.0.22,<0.1",
   "tzdata>=2025.2",
   "websockets>=15,<16",
+  "psycopg[binary,pool]>=3.2,<4",
 ]
 
 [dependency-groups]

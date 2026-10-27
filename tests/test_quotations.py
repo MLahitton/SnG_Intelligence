@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 from conftest import AUTH, CLIENT_ID, DATE, PROJECT_ID, TASK_ID, TOKEN
+from conversation_repository import MemoryRepository
 from pydantic import SecretStr, ValidationError
 from test_agent import FakeModel, call, final, run_agent
 from test_live import SESSION
@@ -478,8 +479,8 @@ async def test_live_six_fresh_turns_fallback_and_unavailable_do_not_close(
             )
         )
     model = FakeModel(*turns)
-    store = ConversationStore()
-    entry = store.create("manager")
+    store = ConversationStore(MemoryRepository())
+    entry = await store.create("manager")
     try:
         async with setup_live(httpx.MockTransport(backend), model) as (
             manager,
@@ -489,7 +490,7 @@ async def test_live_six_fresh_turns_fallback_and_unavailable_do_not_close(
             _,
         ):
             manager._conversations = store
-            store.bind_live(SESSION, entry.conversation_id, "manager")
+            await store.bind_live(SESSION, entry.conversation_id, "manager")
             for number, question in enumerate(questions, 1):
                 begin(socket, f"response_{number}")
                 socket.incoming.put_nowait(function(f"call_{number}", question))
@@ -502,14 +503,14 @@ async def test_live_six_fresh_turns_fallback_and_unavailable_do_not_close(
                 assert not socket.closed and registry.owned(SESSION, "manager")
                 assert vault._get(SESSION).subject == "manager"
                 assert store.conversation_for_live(SESSION) == entry.conversation_id
-            assert len(entry.turns) == 6 and not model.turns
-            for turn in entry.turns:
+            assert len(store.repository.turns[entry.conversation_id]) == 6 and not model.turns
+            for turn in store.repository.turns[entry.conversation_id]:
                 assert json.loads(turn.references)[0]["projectId"] == PROJECT_ID
             assert paths.count("/api/auth/me") == 6
             assert paths.count(f"/api/projects/{PROJECT_ID}") == 6
             assert paths.count(quotation_path("commercial")) == 4
             assert paths.count(quotation_path("budget")) == (0 if stage == "commercial" else 3)
-            assert "tarea" not in entry.turns[2].assistant_content
+            assert "tarea" not in store.repository.turns[entry.conversation_id][2].assistant_content
             outputs = [
                 json.loads(s["item"]["output"])
                 for s in socket.sent

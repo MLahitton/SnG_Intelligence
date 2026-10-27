@@ -10,8 +10,9 @@ Gerencia -> Intelligence API -> Agent Core -> ReadTools -> SnG Control
                                     +-> AgentModel -> OpenAI
 ```
 
-No hay acceso a DB, copia persistida de Project/ProjectTask, cálculo de Lead Time,
-escrituras, RAG, embeddings ni conversaciones persistidas. Voice 1A agrega voz
+No hay acceso a la DB operacional, copia persistida de Project/ProjectTask, cálculo de Lead Time,
+escrituras de negocio, RAG ni embeddings. Las conversaciones se guardan en PostgreSQL propio
+de Intelligence; ese historial no es autoridad operacional. Voice 1A agrega voz
 request/response sobre el mismo agente como fallback. Realtime Voice 2C agrega sesiones GPT-Live y ejecución empresarial por sideband
 privado; el navegador conserva WebRTC, captions y controles.
 
@@ -59,8 +60,10 @@ Python 3.12 o superior. `uv.lock` fija las versiones verificadas. Con uv instala
 ```powershell
 uv sync --locked --cache-dir .uv-cache
 Copy-Item .env.example .env
-# Editar .env con el origen real del backend y el timeout.
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --env-file .env --host 127.0.0.1 --port 8000 --no-access-log
+# Editar .env con el origen real del backend y una DB exclusiva de Intelligence.
+# Ejecutar la migración explícita (carga .env sin imprimir su contenido).
+.\.venv\Scripts\python.exe -m dotenv run -- .\.venv\Scripts\python.exe -m app.conversation.persistence.migrate
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --loop app.core.event_loop:loop_factory --env-file .env --host 127.0.0.1 --port 8000 --no-access-log
 ```
 
 `uv sync` crea `.venv` e instala las dependencias de desarrollo. Alternativa sin uv:
@@ -244,7 +247,7 @@ Content-Type: application/json
 ```
 
 Se acepta `message`, un string no vacío de hasta 4000 caracteres, y opcionalmente
-`conversationId`, generado antes por POST /conversation. Se rechazan campos como
+`conversationId`, recuperado antes por POST /conversation/resume. Se rechazan campos como
 token, email, subject, role, isManagement o history. El guard de Gerencia se ejecuta antes de usar el proveedor, incluso
 si este no está configurado. `/health` y `/session` funcionan sin configuración LLM.
 
@@ -297,7 +300,7 @@ configura la respuesta final mediante `text.format`. Los elementos de razonamien
 del proveedor se reenvían entre rondas solo en memoria durante ese request, incluido
 su contenido cifrado cuando está presente. No se usa Conversations ni
 `previous_response_id`. Sin conversationId el chat es independiente; con ID recibe
-contexto efímero, sin persistencia durable ni replay de tools/razonamiento anteriores.
+una ventana reciente del historial durable propio, sin replay de tools/razonamiento anteriores.
 
 El modelo recibe la pregunta, contexto conversacional acotado si existe, los schemas
 y resultados proyectados de las once
@@ -868,74 +871,122 @@ ante error/cancelación. Chat y fallback conservan sus comprobaciones por tool.
 No se cambió el modelo seleccionado ni se configuró VAD de Realtime en GPT-Live.
 
 
-## Conversation 3A — contexto efímero unificado
+## Persistent Conversations V1 — historial durable, Live temporal
 
-Implementado para texto y GPT-Live de la misma identidad de Gerencia. Backend sigue
-siendo la autoridad operacional. **Smoke real cross-modal aprobado por el usuario**.
-Los escenarios scripted offline verifican protocolo/grounding/lifecycle; complementan
-la validación real y no sustituyen la evaluación del proveedor.
+PostgreSQL propio de Intelligence conserva conversaciones y todos los turnos validados.
+No se accede a la base ni a tablas operacionales de SnG Control. No hay TTL de conversación,
+retención automática, eliminación de turnos ni resúmenes. Cerrar un hilo lo archiva; no borra
+su historial. El límite de Live y de sus credenciales sigue siendo independiente: máximo 600 s.
 
 ```text
-                ConversationStore (context-only)
-                     /                  \
-                   Chat              GPT-Live session.input
-                     |                  sideband
-                     +-------- Agent Core --------+
-                                  |
-                           read-only tools
-                                  |
-                         SnG-Control-Backend
+PostgreSQL Intelligence <- ConversationRepository <- ConversationStore/runtime
+                                                        |            |
+                                                       Chat       Live sideband
+                                                        +-- Agent Core --+
+                                                               |
+                                                     API SnG-Control-Backend
 ```
 
-- `POST /api/intelligence/conversation`, body `{}`, devuelve 201 con
-  `{conversationId, expiresAt}`. ID opaco generado por servidor; nunca subject desde browser.
-- `POST /api/intelligence/conversation/close`, body `{conversationId}`, devuelve `{closed:true}`.
-  Valida Gerencia/ownership y cierra Live asociado. Cierre repetido conserva hasta 128
-  tombstones de ownership, sin historial; IDs desconocidos/expirados no se reutilizan.
-- Chat y `live/session` aceptan opcionalmente `conversationId`; sus respuestas no cambian.
-  Sin ID mantienen compatibilidad independiente. No se crea una conversación implícita.
-- Configuración: `SNG_INTELLIGENCE_CONVERSATION_TTL_SECONDS=1800`, rango 1..3600 segundos.
-  TTL absoluto desde creación, sin extensión por actividad/reconexión. La credencial Live
-  conserva su límite separado de 600 segundos y reautorización antes de cada Agent.run.
-- Límites: 128 conversaciones por proceso, 3 por subject, 16 turnos completos, 16000
-  caracteres del contexto renderizado (incluye referencias/instrucción fija). Se eliminan
-  turnos antiguos completos; un turno que solo exceda el presupuesto también se descarta.
-  No hay resúmenes LLM. Hasta 8 operaciones activas/en espera por conversación.
-- Referentes: orden de referencias verificadas y mensajes previos; no hay resolver paralelo
-  ni proyecto activo inferido por regex. «El segundo», «ese proyecto» o «sus documentos»
-  pueden resolverse con ese contexto, pero el estado actual vuelve a consultarse mediante tools.
-- Grounding: ToolBox/evidence nuevos por ejecución. Los IDs históricos no son evidence keys.
-  Con historial no vacío se rechaza una respuesta factual sin lectura actual; una respuesta
-  sin tools debe ser clarification/unavailable. No se reenvía razonamiento ni tool output viejo.
-- Texto → Live: `session.input` oficial, mensajes user/input_text y assistant/output_text,
-  con instrucción estática context-only y metadata mínima ordenada. No historial en instructions.
-  La proyección inicial Live descarta turnos antiguos completos hasta 6000 bytes UTF-8
-  de contenido, reservando margen para framing dentro del presupuesto de input del proveedor.
-  [Contrato oficial Live](https://developers.openai.com/api/reference/resources/live/methods/create).
-- Voz → texto: solo delegaciones empresariales completadas, pregunta autocontenida + spokenAnswer
-  + referencias verificadas, antes de function_call_output; deduplicación existente por callId.
-  Captions parciales y conversación casual sin delegación no forman historial compartido.
-- Lifecycle: lock por conversación; close/expiry cancela operaciones, borra turnos y cierra
-  sideband/credenciales. Live close conserva contexto y permite reiniciar voz con el mismo ID.
-  Attach fallido revoca credenciales y elimina el binding, sin borrar la conversación válida.
-  Cierre remoto sigue siendo best-effort; no se garantiza bajo fallo de red.
-- Frontend: ID y mensajes en memoria React del panel montado dentro de AppShell; cerrar el
-  panel conserva texto/contexto, libera audio y captions. Navegación interna conserva ID.
-  Nueva conversación cierra Live/contexto anterior y limpia UI. Logout/cambio de subject
-  aborta requests y cierra best-effort con identidad original. Texto bloqueado durante Live.
-  Reload completo pierde continuidad; la conversación abandonada caduca en el servidor.
-- Voz básica `/voice`, `/voice/transcribe`, `/voice/speech` sigue independiente y sin historial.
-  No se presenta como continuidad cross-modal; el modo básico lo indica explícitamente.
-- Seguridad: no se guardan Google tokens/API keys, SDP, audio, tool outputs, reasoning ni
-  Presentation. Guards de credenciales actuales y rechazo de envelopes reconocibles antes de
-  retener contexto. No hay endpoint público de historial ni credenciales. No logs de contenido.
-- Performance: no llamadas LLM adicionales para gestionar memoria. Telemetría numérica
-  `conversation_context_turns` y `conversation_context_chars`; Live conserva `agent_total_ms`.
-  El historial acotado aumenta el input del proveedor: su impacto real debe medirse en smoke.
+### Configuración y migración
 
-Es memoria de una sola instancia: **reiniciar el servidor pierde conversaciones**. Despliegue
-3A usa un proceso/worker; no se comparte estado entre workers/réplicas. No hay DB/Redis,
-archivos, almacenamiento del navegador, RAG, LangGraph ni aprendizaje de preferencias.
+`SNG_INTELLIGENCE_DATABASE_URL` es obligatoria y secreta. Usar una base exclusiva,
+un rol con acceso únicamente a ella y las opciones TLS apropiadas al despliegue.
+No imprimir DSN ni usar la conexión de la base operacional. `.env.example` contiene
+solo un ejemplo local sin credenciales. La variable antigua de TTL ya no se consume.
+
+Dependencia: `psycopg[binary,pool]` 3, sin ORM. El pool async tiene timeout 5 s,
+1–5 conexiones y espera acotada; queries y locks tienen timeout. SQL vive únicamente
+en `app/conversation/persistence/`. No se mantiene una transacción durante el LLM.
+
+Antes de iniciar el API, provisionar la base y ejecutar explícitamente:
+
+```powershell
+.\.venv\Scripts\python.exe -m dotenv run -- .\.venv\Scripts\python.exe -m app.conversation.persistence.migrate
+```
+
+Si las variables ya están en el entorno, basta `python -m app.conversation.persistence.migrate`.
+La migración `001_conversations.sql` crea el schema `intelligence_conversations`, tablas
+`conversations` y `turns`, y el runner registra versión/checksum en `schema_version`.
+Repetir el comando valida la versión existente; no recrea tablas ni borra historial.
+El checksum normaliza saltos de línea entre Windows/Linux. Startup verifica versión,
+checksum y columnas; falla de forma segura si falta configuración, conexión o migración.
+No hay creación automática de tablas en startup. `/health` indica proceso vivo;
+`/readiness` valida acceso/schema de conversaciones y devuelve 503 seguro si falla.
+
+En Windows usar `--loop app.core.event_loop:loop_factory` en Uvicorn (mínimo 0.36):
+psycopg async requiere un SelectorEventLoop. El runner de migraciones ya lo selecciona.
+Ver [compatibilidad async de psycopg](https://www.psycopg.org/psycopg3/docs/advanced/async.html).
+
+### Contratos y continuidad
+
+- `POST /api/intelligence/conversation/resume`, body `{}`: 200 con
+  `{conversationId, createdAt, lastActivityAt}`. Retoma el único hilo abierto del subject
+  autenticado; si no existe, lo crea. Resumes concurrentes obtienen el mismo ID.
+- `POST /api/intelligence/conversation`, body `{}`: 201 con el mismo contrato.
+  Es una nueva conversación intencional: archiva el hilo anterior y crea otro vacío.
+- `POST /api/intelligence/conversation/close`, body `{conversationId}`: `{closed:true}`.
+  Idempotente para su propietario; otro subject recibe 403. No se acepta subject del caller.
+- IDs opacos de 43 caracteres, sin `expiresAt`. Chat y Live conservan sus contratos
+  y `conversationId` opcional. Chat sin ID y voz básica siguen independientes.
+- Frontend monta con `resume`. F5/reabrir navegador/reiniciar Intelligence conserva el ID
+  y contexto durable del subject. El historial visual del panel sigue siendo local: V1 no
+  agrega una pantalla ni endpoint de listado de turnos; las tarjetas antiguas no se reconstruyen.
+- Solo `404 conversation_unavailable` limpia el selector local, hace resume y reintenta
+  la operación original una vez. No reintenta otros 404, 409, 429 ni 5xx. En Live se liberan
+  tracks/peer provisionales antes del resume y se crea una conexión nueva para ese único retry.
+  Los IDs de la versión antigua en RAM no pueden reconstruirse: usan esta misma recuperación.
+- Cerrar panel, logout o cambio de identidad libera solicitudes/media/estado local;
+  no archiva el hilo durable. Nueva conversación sí archiva el hilo y limpia la UI.
+  Expirar/cerrar Live permite reconectar voz en la misma conversación.
+
+### Historial, seguridad y concurrencia
+
+Repository async: create/get/get_current/append_turn/close/list_turns. Persiste texto del
+usuario, respuesta semántica validada, modalidad, responseType, timestamp y referencias
+mínimas verificadas. No guarda Presentation, tool output/protocol, reasoning, objetos OpenAI,
+provider/session IDs, Google tokens, API keys, SDP ni audio. Los guards rechazan credenciales
+reconocibles antes de guardarlas; logs contienen solo categorías, contadores y duraciones.
+
+La DB conserva todos los turnos. `build_context` usa hasta 16 turnos recientes y 16000
+caracteres renderizados, descartando turnos completos solo de la proyección al modelo.
+Live mantiene su límite conservador de 6000 bytes UTF-8 de input. Historia y referencias
+sirven para resolver nombres/ordinales, nunca como evidencia actual. Cada Agent.run vuelve
+a consultar herramientas oficiales con evidencia nueva. Grounding y `store=false` no cambian.
+
+Se guarda únicamente después de Agent success (o unavailable recuperado y validado en Live),
+antes de responder/enviar function_call_output. Fallar append produce un error seguro, no éxito
+sin persistencia. Versión/ordinal y transacción corta hacen atómico append; una escritura
+obsoleta recibe 409, sin retry automático. PK `(conversation_id, ordinal)` evita duplicados.
+Un índice único parcial mantiene un solo hilo abierto por subject; create/resume se serializan
+con advisory lock de transacción. Cerrar/archivar no elimina los turnos.
+
+Runtime contiene locks, operaciones y bindings Live, sin historial durable ni credenciales.
+Máximo 128 runtimes activos y 8 operaciones por hilo. Shutdown cancela operaciones, cierra
+Live, revoca credenciales y cierra pool; nunca archiva ni borra conversaciones por reiniciar.
+**V1 se despliega con un solo worker/proceso**: la versión DB protege escrituras obsoletas
+entre instancias, pero no distribuye locks de ejecución, cancelación ni bindings Live.
+Durabilidad y coordinación multirréplica son problemas distintos.
+
+### Validación y smoke de despliegue
+
+Tests offline usan repository de prueba compartido entre instancias y mocks psycopg;
+no dependen de la DB del usuario ni llaman proveedores. Cubren restart con turnos anteriores,
+lecturas frescas, aislamiento, resume concurrente, CAS, rollback, schema incompatible,
+fallo de append sin éxito, contexto acotado sin pérdida de historial y recuperación frontend.
+
+También se verificó PostgreSQL 17 en un clúster temporal exclusivo con datos sintéticos:
+migración/repetición, resume concurrente, 20 turnos, ventana de contexto, CAS, aislamiento,
+restart de DB/pool/runtime con mismo ID/historial, nuevo hilo y cierre idempotente.
+El clúster se detuvo y eliminó; no se usó la base operacional ni la DB real del usuario.
+
+Después de configurar/migrar una DB de desarrollo, ejecutar el smoke manual: resume y dos
+turnos sobre un proyecto real; reiniciar Uvicorn con la misma DB; F5 y resume; comprobar el
+mismo ID y una consulta referencial con lectura fresca. Repetir al reabrir navegador y al
+reconectar Live tras restart/expiry. La sesión WebRTC anterior no sobrevive al reinicio.
+No confundir los tests offline con aprobación de este smoke real.
+
+Fuera de V1: títulos, lista/búsqueda de conversaciones, rename/delete UI, resúmenes,
+compacción, sincronización realtime entre dispositivos y renovación Live transparente.
 
 
 ## Management Intelligence 4A — análisis ejecutivo
@@ -1163,8 +1214,8 @@ y `replacedByDocumentId`. No bytes, URLs de archivo ni detalles del modelo. El F
 Las listas de metadata y aclaraciones también admiten documentos. Las referencias `type: document`
 solo llevan documentId, projectId y label.
 
-Conversation 3A retiene esas referencias mínimas y la respuesta conversacional normal en su contexto
-efímero existente. No guarda archivos, base64, texto extraído completo ni análisis separado.
+Conversation 3A retiene esas referencias mínimas y la respuesta conversacional normal en su historial
+conversacional existente. No guarda archivos, base64, texto extraído completo ni análisis separado.
 Cada follow-up resuelve el referente y **vuelve a descargar/analizar** con metadata fresca.
 Live usa el mismo Agent/servicio mediante sideband y revalida Gerencia antes de cada ejecución.
 No cambia WebRTC, protocolo sideband, lifecycle de credenciales ni ejecutor del browser. El proveedor
@@ -1278,7 +1329,7 @@ Live convierte únicamente los tipos exactos `UngroundedReference` e `InvalidMod
 en una respuesta de servidor `unavailable`: «No pude verificar esa consulta en este momento.»
 Comprueba que la sesión y su credencial sigan activas antes de recuperarla. Envía el resultado
 por el `function_call_output` y la continuación existentes, manteniendo el sideband abierto.
-Esta respuesta válida, sin referencias, puede entrar al contexto efímero; nunca se guarda
+Esta respuesta válida, sin referencias, puede entrar al historial conversacional; nunca se guarda
 la respuesta parcial rechazada. Chat y voice básico conservan sus errores HTTP seguros.
 
 Autenticación, permisos, subject, ownership, expiración/revocación, límites, `InvalidToolCall`,

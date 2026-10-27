@@ -40,7 +40,7 @@ def test_invalid_timeout(monkeypatch, timeout):
 )
 def test_invalid_origin(url):
     with pytest.raises(ValidationError):
-        Settings(sng_control_base_url=url)
+        Settings(sng_control_base_url=url, database_url="postgresql://localhost/offline_test")
 
 
 @pytest.mark.parametrize(

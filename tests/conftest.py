@@ -1,7 +1,9 @@
 import copy
+from contextlib import asynccontextmanager
 
 import httpx
 import pytest
+from conversation_repository import MemoryRepository
 
 from app.core.config import Settings
 
@@ -21,7 +23,10 @@ AUTH = {
 
 @pytest.fixture
 def settings():
-    return Settings(sng_control_base_url="https://control.test")
+    return Settings(
+        sng_control_base_url="https://control.test",
+        database_url="postgresql://localhost/offline_test",
+    )
 
 
 @pytest.fixture
@@ -186,3 +191,16 @@ def mock_backend(payloads):
         return httpx.Response(200, json=payloads[request.url.path])
 
     return httpx.MockTransport(handle), requests
+
+
+@pytest.fixture(autouse=True)
+def conversation_repository(monkeypatch):
+    repository = MemoryRepository()
+
+    @asynccontextmanager
+    async def open_test_repository(database_url):
+        yield repository
+
+    monkeypatch.setenv("SNG_INTELLIGENCE_DATABASE_URL", "postgresql://localhost/offline_test")
+    monkeypatch.setattr("app.main.open_repository", open_test_repository)
+    return repository

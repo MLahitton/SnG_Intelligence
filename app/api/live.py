@@ -146,7 +146,7 @@ async def _create_live(
                 registry.owned(result.session_id, identity.subject).expires_at,
             )
             if body.conversation_id is not None:
-                store.bind_live(result.session_id, body.conversation_id, identity.subject)
+                await store.bind_live(result.session_id, body.conversation_id, identity.subject)
             await manager.attach(
                 result.session_id, identity.subject, provider, str(request.state.request_id)
             )

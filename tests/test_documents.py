@@ -825,22 +825,24 @@ async def test_provider_format_limits_are_server_owned_and_public(payloads, suff
 
 
 async def test_conversation_store_has_only_short_answer_and_minimal_references(payloads):
+    from conversation_repository import MemoryRepository
+
     from app.conversation.store import ConversationStore
 
-    store = ConversationStore()
+    store = ConversationStore(MemoryRepository())
     try:
-        entry = store.create("manager")
+        entry = await store.create("manager")
         async with environment(payloads) as (service, _, _, tools, guard, _):
             result = await Agent(agent_model(), ToolBox(tools, guard, service), guard, {}).run(
                 "Resume"
             )
             async with store.operation(entry.conversation_id, "manager"):
-                store.append(
+                await store.append(
                     entry.conversation_id,
                     "manager",
                     ConversationTurn.completed("text", "Resume", result),
                 )
-            stored = store.owned(entry.conversation_id, "manager").turns[0]
+            stored = (await store.repository.list_turns(entry.conversation_id, "manager"))[0]
             references = json.loads(stored.references)
             assert set(references[0]) == {"type", "documentId", "projectId", "label"}
             serialized = stored.assistant_content + stored.references

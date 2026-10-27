@@ -2,7 +2,7 @@ import os
 from math import isfinite
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
 
 
 class ConfigurationError(RuntimeError):
@@ -14,7 +14,13 @@ class Settings(BaseModel):
 
     sng_control_base_url: str
     sng_control_timeout_seconds: float = 30
-    conversation_ttl_seconds: int = Field(default=1800, ge=1, le=3600)
+    database_url: SecretStr = Field(repr=False, exclude=True)
+
+    @field_validator("database_url")
+    @classmethod
+    def validate_database(cls, value: SecretStr) -> SecretStr:
+        validate_database_url(value.get_secret_value())
+        return value
 
     @field_validator("sng_control_base_url")
     @classmethod
@@ -51,9 +57,7 @@ class Settings(BaseModel):
         try:
             return cls.model_validate(
                 {
-                    "conversation_ttl_seconds": os.environ.get(
-                        "SNG_INTELLIGENCE_CONVERSATION_TTL_SECONDS", "1800"
-                    ),
+                    "database_url": os.environ.get("SNG_INTELLIGENCE_DATABASE_URL"),
                     "sng_control_base_url": os.environ.get("SNG_CONTROL_BASE_URL"),
                     "sng_control_timeout_seconds": os.environ.get(
                         "SNG_CONTROL_TIMEOUT_SECONDS", "30"
@@ -65,5 +69,22 @@ class Settings(BaseModel):
         raise ConfigurationError(
             "Invalid configuration: check SNG_CONTROL_BASE_URL and "
             "SNG_CONTROL_TIMEOUT_SECONDS (positive finite seconds) and "
-            "SNG_INTELLIGENCE_CONVERSATION_TTL_SECONDS (1..3600)."
+            "SNG_INTELLIGENCE_DATABASE_URL."
         )
+
+
+def validate_database_url(value: str) -> str:
+    try:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme in {"postgresql", "postgres"}
+            and parsed.hostname
+            and parsed.path not in {"", "/"}
+            and not parsed.fragment
+            and not any(ord(char) < 32 for char in value)
+        ):
+            _ = parsed.port
+            return value
+    except ValueError:
+        pass
+    raise ValueError("Invalid Intelligence database configuration")

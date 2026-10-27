@@ -19,7 +19,8 @@ class CreateConversation(StrictModel):
 
 class CreatedConversation(StrictModel):
     conversation_id: ConversationId = Field(alias="conversationId")
-    expires_at: datetime = Field(alias="expiresAt")
+    created_at: datetime = Field(alias="createdAt")
+    last_activity_at: datetime = Field(alias="lastActivityAt")
 
 
 class CloseConversation(StrictModel):
@@ -42,8 +43,28 @@ async def create_conversation(
     guard: Annotated[CredentialGuard, Depends(get_credential_guard)],
 ) -> CreatedConversation:
     guard.check(identity.subject)
-    entry = store.create(identity.subject)
-    return CreatedConversation(conversationId=entry.conversation_id, expiresAt=entry.expires_at)
+    entry = await store.create(identity.subject)
+    return CreatedConversation(
+        conversationId=entry.conversation_id,
+        createdAt=entry.created_at,
+        lastActivityAt=entry.last_activity_at,
+    )
+
+
+@router.post("/resume", response_model=CreatedConversation)
+async def resume_conversation(
+    body: CreateConversation,
+    identity: Annotated[CurrentUser, Depends(get_management_identity)],
+    store: Annotated[ConversationStore, Depends(get_conversations)],
+    guard: Annotated[CredentialGuard, Depends(get_credential_guard)],
+) -> CreatedConversation:
+    guard.check(identity.subject)
+    entry = await store.resume(identity.subject)
+    return CreatedConversation(
+        conversationId=entry.conversation_id,
+        createdAt=entry.created_at,
+        lastActivityAt=entry.last_activity_at,
+    )
 
 
 @router.post("/close", response_model=ClosedConversation)

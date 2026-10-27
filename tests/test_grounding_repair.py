@@ -7,6 +7,7 @@ import httpx
 import openai
 import pytest
 from conftest import CLIENT_ID, PROJECT_ID, TOKEN
+from conversation_repository import MemoryRepository
 from test_agent import FakeModel, call, final, run_agent
 from test_live import KEY, SESSION
 from test_openai_model import output_message, response_body
@@ -180,12 +181,12 @@ async def test_four_live_turns_repair_history_reference_and_keep_session(
         "¿Tenemos más proyectos, alguno que esté atrasado?",
         "¿Cuántos proyectos hay?",
     ]
-    store = ConversationStore()
-    entry = store.create("manager")
+    store = ConversationStore(MemoryRepository())
+    entry = await store.create("manager")
     try:
         async with setup_live(mock_backend[0], model) as (manager, socket, vault, registry, _):
             manager._conversations = store
-            store.bind_live(SESSION, entry.conversation_id, "manager")
+            await store.bind_live(SESSION, entry.conversation_id, "manager")
             for number, question in enumerate(questions, 1):
                 begin(socket, f"response_{number}")
                 socket.incoming.put_nowait(function(f"call_{number}", question))
@@ -199,13 +200,18 @@ async def test_four_live_turns_repair_history_reference_and_keep_session(
                 assert vault._get(SESSION).subject == "manager"
                 assert not socket.closed
                 assert store.conversation_for_live(SESSION) == entry.conversation_id
-                assert len(entry.turns) == number
+                assert len(store.repository.turns[entry.conversation_id]) == number
             assert len(model.inputs) == 10
             assert "Casa Ximena" in repr(model.inputs[2][0])
             assert json.loads(model.inputs[7][0][-2].content)["reference_keys"] == [CURRENT]
             assert model.inputs[7][1] == ()
-            assert json.loads(entry.turns[1].references)[0]["projectId"] == PROJECT_ID
-            assert entry.turns[2].references == "[]"
+            assert (
+                json.loads(store.repository.turns[entry.conversation_id][1].references)[0][
+                    "projectId"
+                ]
+                == PROJECT_ID
+            )
+            assert store.repository.turns[entry.conversation_id][2].references == "[]"
             outputs = [
                 json.loads(s["item"]["output"])
                 for s in socket.sent
@@ -219,8 +225,13 @@ async def test_four_live_turns_repair_history_reference_and_keep_session(
                     "responseType": "unavailable",
                     "spokenAnswer": "No pude verificar esa consulta en este momento.",
                 }
-                assert entry.turns[2].response_type == "unavailable"
-                assert entry.turns[2].assistant_content == outputs[2]["spokenAnswer"]
+                assert (
+                    store.repository.turns[entry.conversation_id][2].response_type == "unavailable"
+                )
+                assert (
+                    store.repository.turns[entry.conversation_id][2].assistant_content
+                    == outputs[2]["spokenAnswer"]
+                )
                 assert "turn_recovered" in caplog.text
             assert outputs[3]["spokenAnswer"] == "Hay 19 proyectos."
             paths = [r["path"] for r in mock_backend[1]]
@@ -266,8 +277,8 @@ async def test_invalidated_session_cannot_publish_recoverable_answer(mock_backen
             await release.wait()
             raise InvalidModelResponse()
 
-    store = ConversationStore()
-    entry = store.create("manager")
+    store = ConversationStore(MemoryRepository())
+    entry = await store.create("manager")
     try:
         async with setup_live(mock_backend[0], FailingModel()) as (
             manager,
@@ -277,7 +288,7 @@ async def test_invalidated_session_cannot_publish_recoverable_answer(mock_backen
             _,
         ):
             manager._conversations = store
-            store.bind_live(SESSION, entry.conversation_id, "manager")
+            await store.bind_live(SESSION, entry.conversation_id, "manager")
             begin(socket)
             socket.incoming.put_nowait(function())
             complete(socket)
@@ -289,7 +300,10 @@ async def test_invalidated_session_cannot_publish_recoverable_answer(mock_backen
             release.set()
             await until(lambda: not manager._runs)
             assert socket.closed and not registry._entries
-            assert not entry.turns and store.conversation_for_live(SESSION) is None
+            assert (
+                not store.repository.turns[entry.conversation_id]
+                and store.conversation_for_live(SESSION) is None
+            )
             assert not any(
                 s["type"] in {"response.item.create", "response.create"} for s in socket.sent
             )

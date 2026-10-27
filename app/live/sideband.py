@@ -369,7 +369,7 @@ class LiveSidebandManager:
             # Core guards both inputs and output. Defence in depth before retaining a turn.
             self._credentials.check(session_id, question)
             self._credentials.check(session_id, result.model_dump_json())
-            store.append(
+            await store.append(
                 key, run.entry.subject, ConversationTurn.completed("voice", question, result)
             )
             return result

@@ -20,6 +20,7 @@ from app.clients.sng_control import SnGControlClient
 from app.clients.transport import create_http_client
 from app.contracts.auth import CurrentUser
 from app.conversation.context import ConversationTurn
+from app.conversation.persistence.postgres import open_repository
 from app.conversation.store import ConversationStore
 from app.core.config import Settings
 from app.core.errors import IntelligenceError
@@ -42,14 +43,17 @@ def create_app(
         logging.getLogger("httpcore").setLevel(logging.WARNING)
         # Multipart debug messages include parser events; do not log upload contents.
         logging.getLogger("python_multipart").setLevel(logging.CRITICAL)
-        async with create_http_client(
-            config.sng_control_base_url, config.sng_control_timeout_seconds, transport
-        ) as http:
+        async with (
+            open_repository(config.database_url) as repository,
+            create_http_client(
+                config.sng_control_base_url, config.sng_control_timeout_seconds, transport
+            ) as http,
+        ):
             application.state.control_http = http
             registry = LiveRegistry()
             application.state.live_registry = registry
             credentials = LiveCredentialContext()
-            conversations = ConversationStore(config.conversation_ttl_seconds)
+            conversations = ConversationStore(repository)
             application.state.conversations = conversations
             sidebands = LiveSidebandManager(
                 registry,
@@ -100,6 +104,12 @@ def create_app(
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @application.get("/readiness")
+    async def readiness(request: Request) -> dict[str, str]:
+        store = get_conversations(request)
+        await store.repository.ready()
+        return {"status": "ready"}
+
     @application.exception_handler(RequestValidationError)
     async def safe_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
         # FastAPI defaults echo invalid inputs; request bodies can contain secrets.
@@ -120,7 +130,7 @@ def create_app(
             return await agent.run(body.message)
         async with store.operation(body.conversation_id, identity.subject) as context:
             result = await agent.run(body.message, context)
-            store.append(
+            await store.append(
                 body.conversation_id,
                 identity.subject,
                 ConversationTurn.completed("text", body.message, result),

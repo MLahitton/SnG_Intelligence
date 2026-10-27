@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 import httpx
 import pytest
 from conftest import PROJECT_ID, TOKEN
+from conversation_repository import MemoryRepository
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from test_agent import FakeModel, call, final
@@ -548,8 +549,8 @@ async def test_terminal_turn_events_clear_jobs_credentials_and_conversation_bind
             finally:
                 cancelled.set()
 
-    store = ConversationStore()
-    entry = store.create("manager")
+    store = ConversationStore(MemoryRepository())
+    entry = await store.create("manager")
     try:
         async with setup_live(mock_backend[0], WaitingModel()) as (
             manager,
@@ -559,7 +560,7 @@ async def test_terminal_turn_events_clear_jobs_credentials_and_conversation_bind
             _,
         ):
             manager._conversations = store
-            store.bind_live(SESSION, entry.conversation_id, "manager")
+            await store.bind_live(SESSION, entry.conversation_id, "manager")
             run = manager._runs[SESSION]
             begin(socket)
             socket.incoming.put_nowait(function())
@@ -602,7 +603,7 @@ async def test_terminal_turn_events_clear_jobs_credentials_and_conversation_bind
             with pytest.raises(LiveSessionUnavailable):
                 vault._get(SESSION)
             assert store.conversation_for_live(SESSION) is None
-            assert store.owned(entry.conversation_id, "manager").turns == ()
+            assert store.repository.turns[entry.conversation_id] == ()
             # A failed Live turn leaves text continuation possible, without a stale lock.
             async with asyncio.timeout(1):
                 async with store.operation(entry.conversation_id, "manager") as context:
