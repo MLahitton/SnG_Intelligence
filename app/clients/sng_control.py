@@ -9,6 +9,7 @@ from app.contracts.documents import Document, ProjectDocuments
 from app.contracts.management import ManagementOverview, ManagementTask
 from app.contracts.notifications import ProjectNotification
 from app.contracts.projects import Project, ProjectTask
+from app.contracts.quotations import ConfirmedBudgetQuotation, ConfirmedCommercialQuotation
 from app.core.errors import (
     AuthenticationRequired,
     BackendResponseError,
@@ -151,6 +152,36 @@ class SnGControlClient:
             TypeAdapter(list[ProjectNotification]),
             "notifications",
         )
+
+    async def get_budget_quotation(self, project_id: UUID | str) -> ConfirmedBudgetQuotation | None:
+        identifier = validate_project_id(project_id)
+        try:
+            result = await self._get(
+                f"/api/projects/{identifier}/budget-quotation/view",
+                TypeAdapter(ConfirmedBudgetQuotation),
+                "budget_quotation",
+            )
+        except ResourceNotFound:
+            return None
+        if result.project_id != identifier:
+            raise BackendResponseError()
+        return result
+
+    async def get_commercial_quotation(
+        self, project_id: UUID | str
+    ) -> ConfirmedCommercialQuotation | None:
+        identifier = validate_project_id(project_id)
+        try:
+            result = await self._get(
+                f"/api/projects/{identifier}/commercial-quotation/view",
+                TypeAdapter(ConfirmedCommercialQuotation),
+                "commercial_quotation",
+            )
+        except ResourceNotFound:
+            return None
+        if result.project_id != identifier:
+            raise BackendResponseError()
+        return result
 
     async def download_project_document(
         self,

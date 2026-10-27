@@ -20,11 +20,29 @@ from app.agent.contracts import (
 from app.agent.errors import InvalidToolCall, ToolResultTooLarge, UngroundedReference
 from app.agent.presentation import PresentationEvidence
 from app.agent.prompt import TASK_LABELS_ES
+from app.agent.quotations import quotation_data
 from app.agent.security import CredentialGuard
 from app.documents.service import DocumentAnalysisService, sources
 from app.tools import ReadTools
 
 TOOL_DEFINITIONS = (
+    ToolDefinition(
+        "get_budget_quotation",
+        "Confirmed Budget quotation: items, physical quantities, technical values and document "
+        "metadata, never prices. Resolve an unambiguous project in this run first. Use for "
+        "explicit "
+        "Budget questions or generic technical questions AFTER Commercial returned unavailable. "
+        "Unavailable is not zero; never substitute task counts or document analysis.",
+        ProjectArguments,
+    ),
+    ToolDefinition(
+        "get_commercial_quotation",
+        "Confirmed Commercial quotation: latest technical snapshot, official prices and technical "
+        "differences from Budget. Resolve an unambiguous project in this run first. Use first for "
+        "generic technical/item/quantity questions, directly for prices/Commercial changes. "
+        "itemCount counts rows; totalQuantity counts physical units, NEVER workflow tasks.",
+        ProjectArguments,
+    ),
     ToolDefinition(
         "analyze_project_documents",
         "Read actual document contents, never for metadata-only questions. "
@@ -115,6 +133,11 @@ class ToolBox:
         self.document_response_type: str | None = None
         self.document_answer: str | None = None
         self.document_choices: set[str] = set()
+        self._quotation_availability: list[bool] = []
+
+    @property
+    def quotations_unavailable(self) -> bool:
+        return bool(self._quotation_availability) and not any(self._quotation_availability)
 
     def _add(self, reference: Reference) -> None:
         if isinstance(reference, TaskReference):
@@ -152,6 +175,15 @@ class ToolBox:
             if isinstance(arguments, ComparisonArguments) and any(
                 identifier in self._ambiguous or f"project:{identifier}" not in self._references
                 for identifier in arguments.project_ids
+            ):
+                raise InvalidToolCall()
+            if (
+                call.name in {"get_budget_quotation", "get_commercial_quotation"}
+                and isinstance(arguments, ProjectArguments)
+                and (
+                    arguments.project_id in self._ambiguous
+                    or f"project:{arguments.project_id}" not in self._references
+                )
             ):
                 raise InvalidToolCall()
             if isinstance(arguments, DocumentArguments):
@@ -315,6 +347,14 @@ class ToolBox:
                     TaskReference(project_id=t.project_id, task_id=t.id, label=t.type)
                     for t in details.tasks
                 )
+            elif call.name == "get_budget_quotation":
+                budget = await self._tools.get_budget_quotation(arguments.project_id)
+                self._quotation_availability.append(budget is not None)
+                data = quotation_data(arguments.project_id, "budget", budget)
+            elif call.name == "get_commercial_quotation":
+                commercial = await self._tools.get_commercial_quotation(arguments.project_id)
+                self._quotation_availability.append(commercial is not None)
+                data = quotation_data(arguments.project_id, "commercial", commercial)
             elif call.name == "get_project_documents":
                 documents = await self._tools.get_project_documents(arguments.project_id)
                 evidence = sources(arguments.project_id, documents)

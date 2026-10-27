@@ -129,6 +129,12 @@ class Agent:
         # then render both surfaces from the same content and evidence.
         if turn.answer.spoken_answer != turn.answer.answer:
             raise InvalidModelResponse()
+        if self._tools.quotations_unavailable and turn.answer.response_type not in (
+            "unavailable",
+            "clarification",
+        ):
+            # A missing quotation must not become a factual task-count fallback.
+            raise InvalidModelResponse()
         if (
             self._tools.document_response_type is not None
             and turn.answer.response_type != self._tools.document_response_type

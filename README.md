@@ -300,7 +300,7 @@ su contenido cifrado cuando está presente. No se usa Conversations ni
 contexto efímero, sin persistencia durable ni replay de tools/razonamiento anteriores.
 
 El modelo recibe la pregunta, contexto conversacional acotado si existe, los schemas
-y resultados proyectados de las nueve
+y resultados proyectados de las once
 tools registradas. Nunca recibe ReadTools, el cliente backend, requests, headers,
 variables de entorno o contexto de autenticación. Se omiten identidades Google,
 emails de autores/asignados y flags de modificación de los resultados. Un guard
@@ -708,7 +708,7 @@ Browser <-- WebRTC audio + captions/UI --> GPT-Live
 
 El servidor es el único ejecutor de `consult_sng_intelligence`. Responses delegation
 recibe contexto de Live y produce preguntas autocontenidas para el Agent con evidencia nueva y contexto opcional.
-Las nueve tools read-only, grounding, referencias y Presentation no se duplican ni
+Las once tools read-only, grounding, referencias y Presentation no se duplican ni
 se exponen directamente a Live. El browser no interpreta llamadas, no consulta
 `/live/delegate` y no envía tool outputs ni `response.create`. Ese endpoint fue eliminado.
 
@@ -946,7 +946,7 @@ autenticación, credenciales, `store=false`, TLS ni STT/TTS. No hay estado empre
 
 ### Snapshot gerencial
 
-`get_management_snapshot()` añade una tool cerrada al catálogo (ocho tools en 4A; nueve con 4B;
+`get_management_snapshot()` añade una tool cerrada al catálogo (ocho tools en 4A; nueve con 4B; once con el dossier confirmado;
 se conservan las seis anteriores). Autoriza primero y obtiene overview y management tasks
 concurrentemente. Cancela y espera todas las lecturas pendientes ante fallo/cancelación.
 El contrato contiene:
@@ -1307,3 +1307,84 @@ Las pruebas offline reproducen proyecto → seguimiento con consulta fresca → 
 con referencia histórica inválida → cuarta consulta. Cubren reparación a una referencia actual
 o a `[]`, repair fallido, unavailable recuperable, continuidad de credenciales/registry/binding,
 protocolo Responses, límites y errores fatales. No equivalen a un nuevo smoke acústico real.
+
+
+## Dossier de cotización confirmada para Gerencia
+
+Dos tools nuevas, en el mismo Agent Core de texto, voice básico y Live:
+
+| Tool | Vista oficial read-only |
+| --- | --- |
+| `get_budget_quotation(project_id)` | `GET /api/projects/{id}/budget-quotation/view` |
+| `get_commercial_quotation(project_id)` | `GET /api/projects/{id}/commercial-quotation/view` |
+
+Requieren un UUID de proyecto resuelto sin ambigüedad en la evidencia del run actual.
+El historial identifica «ese proyecto», pero cada turno vuelve a consultar datos oficiales.
+La validación de todo el batch impide resolver un proyecto y usar su cotización como si ya
+estuviera verificado dentro del mismo batch. Se conserva la autorización de Gerencia y
+`X-SnG-Active-Role: Management`. El transporte permite únicamente estas dos rutas GET adicionales;
+no permite imágenes, archivos de cotización, escrituras, redirecciones ni hosts arbitrarios.
+
+### Ítems, cantidades y fuente
+
+- `itemCount = len(items)`: renglones/ítems, nunca tareas de workflow.
+- `totalQuantity = sum(quantity)`: unidades físicas de los valores confirmados. Por ejemplo,
+  cantidades 2, 1 y 4 equivalen a **3 ítems y 7 unidades**; no a siete ítems.
+- «Estructuras de vidrio» se expresa prudentemente como unidades cotizadas si no está probada
+  la clasificación de todos los ítems. No se crean categorías adicionales.
+- Preguntas técnicas generales consultan Commercial primero; solo `available=false` permite
+  fallback a Budget. Preguntas explícitas de Presupuestos consultan Budget directamente.
+- Precios/cambios de Comercial consultan Commercial directamente, sin leer Budget innecesariamente.
+  `unitPrice`, `totalPrice` y `projectTotal` son cifras oficiales: no se estiman ni se recalculan.
+  El total de una cotización no acredita facturación, margen o ventas realizadas.
+- Los cambios provienen exclusivamente de `technicalDifferences` del Backend. En Commercial
+  son Presupuestos → Comercial; en Budget son extracción → confirmación de Presupuestos.
+  Intelligence no vuelve a comparar valores ni a calcular diferencias.
+
+Las reglas de selección se proporcionan al modelo mediante el prompt y las descripciones de tools;
+el servidor ejecuta solo el dispatcher cerrado y valida argumentos, autorización y evidencia.
+Las pruebas scripted comprueban los flujos y contratos; no demuestran selección semántica perfecta
+de un proveedor real. Un smoke conversacional real posterior debe verificar esas preguntas.
+
+### Contratos y límites
+
+`app/contracts/quotations.py` modela `CatalogItemValues`, `TechnicalDifference`,
+`BudgetQuotationDocument`, `BudgetQuotationItem`, `ConfirmedBudgetQuotation`,
+`CommercialQuotationItem` y `ConfirmedCommercialQuotation`. Contratos strict con campos extra
+prohibidos, UUID/datetime, medidas/precios Decimal y cantidades enteras positivas. Los enums
+cerrados reproducen `Main/Additional`, `Stored/Missing/Ambiguous` y los once TechnicalField
+observados en el Backend. Una ampliación incompatible requiere actualizar el contrato.
+
+La proyección incluye `source`, `available`, `confirmedAt`, los dos conteos derivados y todos
+los ítems confirmados, con campos técnicos, diferencias y disponibilidad de imagen. Budget añade
+su documento/versionNumber; Commercial, precios y projectTotal. Omite IDs de cotización/catálogo/
+ítems, valores extracted, storage metadata y bytes. Los Decimal se serializan como strings
+exactos para conservar precisión. Campos vacíos permanecen vacíos: no especificado, no inferido.
+
+404 de estas vistas devuelve `available=false`, sin cantidades cero inventadas; no cierra Live.
+No distingue por sí solo proyecto eliminado de snapshot ausente, por eso la tool exige evidencia
+previa fresca del proyecto y comunica indisponibilidad, no una afirmación de inexistencia.
+Si todas las cotizaciones consultadas están ausentes, la validación final exige unavailable o
+clarification: rechaza un fallback factual basado en tareas. 401/403, payload inválido, timeouts
+y errores de infraestructura conservan su tratamiento seguro; no se convierten en ausencia.
+
+Se conserva `MAX_RESULT_BYTES=48000` y el límite de transcript. Una proyección completa que
+exceda el límite falla con `tool_result_too_large`: no se trunca, pagina ni selecciona una muestra
+silenciosamente. Pruebas con 13 ítems/16 unidades comprueban el envío completo dentro del límite;
+pruebas sobredimensionadas comprueban el rechazo. No se midieron datos empresariales reales.
+
+### Unidades, moneda y presentación
+
+Se revisaron `QuotationReadModels.cs`, `CatalogItemValues.cs`, los converters JSON,
+`EfQuotationReadStore.cs` y los tests del parser/API del Backend, sin modificarlos.
+`CachedFormula_IsReadWithoutCalculationAndM2IsNotReconstructed` confirma que squareMeters
+conserva el valor del archivo y no se reconstruye a partir de ancho/alto. Los contratos revisados
+no prueban una regla universal de agregación con quantity. Esta fase muestra m² oficiales por
+ítem; no agrega `totalSquareMeters`. Tampoco afirma unidad de width/height ni moneda COP/$:
+no están declaradas en la vista. No se reparsea XLSX ni se consulta DB.
+
+Se reutiliza `direct` con `presentation_keys=[]` y referencias verificadas al proyecto.
+Los ítems de cotización nunca se representan como TaskItem; no hay nuevas rutas ni contratos
+públicos de navegación. El nombre oficial del proyecto sigue siendo la identidad principal.
+El repair único de grounding se conserva; los IDs internos no se vuelven referencias válidas.
+No cambian Frontend, Backend, audio, VAD, modelos Live ni el ciclo de credenciales.

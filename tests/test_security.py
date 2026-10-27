@@ -27,6 +27,12 @@ from app.tools import ReadTools
         ("GET", f"/api/projects/{PROJECT_ID}/documents/file"),
         ("GET", f"/api/projects/{PROJECT_ID}/documents/current.zip"),
         ("GET", f"/api/projects/{PROJECT_ID}/documents/initial-handoff.zip"),
+        ("POST", f"/api/projects/{PROJECT_ID}/budget-quotation/view"),
+        ("POST", f"/api/projects/{PROJECT_ID}/commercial-quotation/view"),
+        ("GET", f"/api/projects/{PROJECT_ID}/budget-quotation/items/{PROJECT_ID}/image"),
+        ("GET", f"/api/projects/{PROJECT_ID}/commercial-quotation/file"),
+        ("GET", f"/api/projects/{PROJECT_ID}/budget-quotation/view?url=https://evil.test"),
+        ("GET", f"https://evil.test/api/projects/{PROJECT_ID}/commercial-quotation/view"),
         ("GET", "/api/auth/me?url=https://evil.test"),
         ("GET", "https://evil.test/api/auth/me"),
         ("GET", "http://control.test/api/auth/me"),
@@ -110,6 +116,8 @@ def test_dependency_clears_credentials_and_lifespan_closes_pool(
 
 def test_public_client_and_tool_surfaces_are_closed():
     assert {name for name in dir(ReadTools) if not name.startswith("_")} == {
+        "get_budget_quotation",
+        "get_commercial_quotation",
         "get_management_snapshot",
         "compare_projects",
         "get_management_overview",
@@ -120,6 +128,8 @@ def test_public_client_and_tool_surfaces_are_closed():
         "find_projects",
     }
     assert {name for name in dir(SnGControlClient) if not name.startswith("_")} == {
+        "get_budget_quotation",
+        "get_commercial_quotation",
         "get_current_user",
         "get_management_overview",
         "list_management_tasks",

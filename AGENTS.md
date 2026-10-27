@@ -883,7 +883,7 @@ When a requested implementation conflicts with one of these rules, stop that spe
   the model configurable; provider availability must not prevent health startup.
 - `GET /api/projects` is now allowed solely for the closed read-only project search.
   Do not add arbitrary HTTP tools or broaden the transport to other methods.
-- Only the nine explicitly registered tools (including Management 4A composites and 4B analysis) are visible to the model. Validate all
+- Only the eleven explicitly registered tools (including Management 4A composites, 4B analysis and confirmed quotation reads) are visible to the model. Validate all
   tool arguments and the whole requested batch before execution; enforce bounded
   rounds, calls, execution time and payload size. Never truncate silently.
 - Chats without conversationId are independent. Conversation 3A explicitly permits
@@ -1102,3 +1102,23 @@ small adapters; model/voice configuration is server-owned and never supplied by 
     Never names, document/project IDs, bytes, questions or analysis in logs.
 12. Offline tests cover scopes, limits, auth/download, SDK wire inputs, safe errors, grounding,
     buffer cleanup, context and Live. Real paid smoke is explicit and manual, not a pytest fixture.
+
+
+## Confirmed quotation dossier — explicit read authorization
+
+- Two closed GET tools read `/api/projects/{id}/budget-quotation/view` and
+  `/api/projects/{id}/commercial-quotation/view` with the existing Management role header.
+  Quotation calls require an unambiguous project reference recovered in the current run.
+- Confirmed quotation items are not workflow tasks. itemCount counts returned rows;
+  totalQuantity sums their positive integer quantities. Never substitute task counts.
+- Generic technical questions prefer confirmed Commercial, then Budget only on unavailable.
+  Explicit stage questions read that stage. Prices are Commercial unitPrice/totalPrice/projectTotal,
+  never estimated or recalculated. Backend technicalDifferences are authoritative.
+- Closed strict contracts, Decimal measures/prices, optional 404 views; 401/403 and backend
+  failures remain errors. Absence is not a zero or empty quotation. No image download/XLSX parsing.
+- Project references remain the only navigation for quotations. No internal quotation/catalog
+  IDs, image bytes, storage metadata or auth context enter the model. No new HTTP/UI contract.
+- No assumed currency, dimension units or aggregate square meters. Keep official per-item m²;
+  no derivation from dimensions or multiplication by quantity without a proven contract.
+- Same Agent for text/basic voice/Live, fresh reads each turn; preserve grounding repair,
+  credential lifecycle and payload limits. Oversized quotations fail safely, never truncate.

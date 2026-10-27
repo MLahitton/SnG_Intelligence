@@ -12,6 +12,7 @@ from app.contracts.management import AttentionItem, ManagementOverview, Manageme
 from app.contracts.notifications import ProjectNotification
 from app.contracts.presentation import Coverage
 from app.contracts.projects import ProjectCandidate, ProjectDetails
+from app.contracts.quotations import ConfirmedBudgetQuotation, ConfirmedCommercialQuotation
 from app.core.errors import InvalidArguments, ManagementRequired
 from app.core.latency import measure
 from app.documents.download import DownloadedDocument
@@ -65,6 +66,18 @@ class ReadTools:
     async def list_management_tasks(self) -> list[ManagementTask]:
         await self._authorize()
         return await self._client.list_management_tasks()
+
+    async def get_budget_quotation(self, project_id: UUID | str) -> ConfirmedBudgetQuotation | None:
+        identifier = validate_project_id(project_id)
+        await self._authorize()
+        return await self._client.get_budget_quotation(identifier)
+
+    async def get_commercial_quotation(
+        self, project_id: UUID | str
+    ) -> ConfirmedCommercialQuotation | None:
+        identifier = validate_project_id(project_id)
+        await self._authorize()
+        return await self._client.get_commercial_quotation(identifier)
 
     async def get_project_details(self, project_id: UUID | str) -> ProjectDetails:
         identifier = validate_project_id(project_id)

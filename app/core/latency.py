@@ -106,6 +106,8 @@ BackendOperation = Literal[
     "project_tasks",
     "documents",
     "notifications",
+    "budget_quotation",
+    "commercial_quotation",
 ]
 
 
