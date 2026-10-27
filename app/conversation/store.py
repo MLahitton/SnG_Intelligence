@@ -4,13 +4,13 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
+from app.conversation.compaction import Compactor, MemoryCompaction
 from app.conversation.context import (
-    MAX_CONTEXT_TURNS,
     ConversationContext,
     ConversationTurn,
-    build_context,
     check_context_text,
 )
+from app.conversation.openai_memory import compact_memory
 from app.conversation.repository import (
     ConversationBusy as ConversationBusy,
 )
@@ -46,8 +46,11 @@ class _Runtime:
 class ConversationStore:
     """Durable history via repository; process-local locks and Live bindings only."""
 
-    def __init__(self, repository: ConversationRepository) -> None:
+    def __init__(
+        self, repository: ConversationRepository, compactor: Compactor | None = None
+    ) -> None:
         self.repository = repository
+        self._memory = MemoryCompaction(repository, compactor or compact_memory)
         self._runtime: dict[str, _Runtime] = {}
         self._live: dict[str, str] = {}
         self.close_live: Callable[[str], Awaitable[None]] | None = None
@@ -117,8 +120,8 @@ class ConversationStore:
                     raise ConversationBusy()
                 runtime.owner = task
                 runtime.version = entry.version
-                turns = await self.repository.list_turns(key, subject, limit=MAX_CONTEXT_TURNS)
-                yield build_context(turns)
+                context = await self._memory.context(key, subject, entry.version)
+                yield context
                 try:
                     await self.owned(key, subject)
                 except ConversationUnavailable:

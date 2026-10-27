@@ -8,6 +8,8 @@ from app.conversation.repository import (
     ConversationEntry,
     ConversationForbidden,
     ConversationUnavailable,
+    StoredConversationMemory,
+    StoredConversationTurn,
 )
 
 
@@ -17,6 +19,7 @@ class MemoryRepository:
     def __init__(self):
         self.entries = {}
         self.turns = {}
+        self.memories = {}
         self.lock = asyncio.Lock()
 
     async def ready(self):
@@ -76,3 +79,30 @@ class MemoryRepository:
         await self.get(key, subject)
         turns = self.turns[key]
         return turns if limit is None else turns[-limit:]
+
+    async def get_memory(self, key, subject):
+        await self.get(key, subject)
+        return self.memories.get(key)
+
+    async def save_memory(self, key, subject, memory, compacted_through, expected_revision):
+        async with self.lock:
+            entry = await self.get(key, subject)
+            if entry.closed_at is not None:
+                raise ConversationUnavailable()
+            previous = self.memories.get(key)
+            if (previous.revision if previous else 0) != expected_revision or not (
+                previous.compacted_through if previous else 0
+            ) < compacted_through <= entry.version:
+                raise ConversationBusy()
+            stored = StoredConversationMemory(compacted_through, expected_revision + 1, memory)
+            self.memories[key] = stored
+            return stored
+
+    async def list_turn_records(self, key, subject, *, after, through, limit, latest=False):
+        await self.get(key, subject)
+        records = tuple(
+            StoredConversationTurn(i, turn)
+            for i, turn in enumerate(self.turns[key], 1)
+            if after < i <= through
+        )
+        return records[-limit:] if latest else records[:limit]

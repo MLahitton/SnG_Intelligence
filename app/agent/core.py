@@ -120,7 +120,7 @@ class Agent:
         # and unavailable responses can still ask for information without inventing it.
         if (
             context
-            and context.turns
+            and context.has_history
             and not has_reads
             and turn.answer.response_type not in ("clarification", "unavailable")
         ):

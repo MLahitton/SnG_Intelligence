@@ -10,6 +10,8 @@ from time import perf_counter
 from typing import Literal
 
 Metric = Literal[
+    "conversation_memory_compaction_ms",
+    "conversation_memory_model_calls",
     "document_metadata_ms",
     "document_download_ms",
     "document_analysis_provider_ms",

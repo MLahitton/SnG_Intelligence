@@ -1017,7 +1017,8 @@ small adapters; model/voice configuration is server-owned and never supplied by 
 3. Store all validated semantic turns and minimal verified references, never credentials,
    SDP, audio, WebRTC/provider IDs, reasoning, raw tool output, OpenAI objects or Presentation.
    No conversation TTL or automatic retention/deletion. Closing archives without deleting turns.
-4. Model context remains bounded to 16 turns/16000 rendered characters; Live input remains
+4. Model context combines Long Context V1 memory and up to 16 recent turns within 16000
+   rendered characters; Live input remains
    bounded to 6000 UTF-8 bytes. Eviction is projection-only, never storage truncation.
 5. History is untrusted referent context, never current evidence. Every factual run needs
    fresh official reads and run-local grounding. Keep store=false, no provider Conversations.
@@ -1033,7 +1034,8 @@ small adapters; model/voice configuration is server-owned and never supplied by 
    Live frees provisional tracks/peer first. Logout/unmount clears local state, not durable data.
    New conversation clears UI and intentionally creates a new server thread.
 10. V1 uses one worker: DB durability/CAS do not distribute runtime locks, Live or cancellation.
-    No conversation list/search/title/rename/delete UI, summaries or automatic Live renewal.
+    No conversation list/search/title/rename/delete UI or automatic Live renewal. Long Context V1
+    below explicitly authorizes structured rolling memory, not free-form transcript replacement.
 11. Telemetry contains metadata only. Offline tests never depend on the user's real DB/provider.
 
 
@@ -1125,3 +1127,39 @@ small adapters; model/voice configuration is server-owned and never supplied by 
   no derivation from dimensions or multiplication by quantity without a proven contract.
 - Same Agent for text/basic voice/Live, fresh reads each turn; preserve grounding repair,
   credential lifecycle and payload limits. Oversized quotations fail safely, never truncate.
+
+
+## Long Context V1 — explicit structured-memory exception
+
+1. Keep full durable turns untouched. Add per-conversation rolling structured memory in the
+   dedicated Intelligence DB only; no cross-conversation memory or operational snapshots.
+2. Strict draft fields: summary, topics, explicit userDecisions, hypothetical userAssumptions,
+   openThreads and historical assistant priorProposals. Incorporate revocation/resolution;
+   never infer acceptance. No IDs, current status/price/deadline fields or provider objects.
+3. Derive historicalReferents server-side from verified turn references and prior memory;
+   deduplicate by type/IDs in last-appearance order, cap 16 and remove whole oldest references
+   only if the aggregate budget requires it. Never trust compactor-generated identifiers.
+4. Memory is untrusted assistant data, not developer instructions or current evidence. Do not
+   seed the evidence ledger. Every factual run requires a fresh read even with memory-only
+   context; historical IDs do not authorize quotation tools. Keep _finalize strict.
+5. Lazy incremental compaction: trigger >16 unrepresented turns, target 12 recent, batch <=8,
+   one batch per operation; 48000 characters/144000 bytes, complete turns only. Oversized first
+   turns and failures preserve previous memory and explicitly signal an incomplete projection.
+   Context <=16000 rendered characters/16 recent turns; same semantic memory in Live <=6000 bytes.
+6. Draft prose <=3000 JSON characters/3200 UTF-8 bytes; final memory <=5000 characters/4800 bytes.
+   Summary <=1800; each category <=6 items of <=240 characters. Never slice serialized JSON.
+7. Isolated official Responses compactor: strict output, store=false, no tools/business client,
+   web/documents/reasoning/previous_response_id/provider Conversations. Optional MEMORY_MODEL
+   falls back to SNG_INTELLIGENCE_MODEL, same OPENAI_API_KEY; no startup provider dependency.
+8. Read and release DB connections before model calls. Short revision-CAS transaction afterward;
+   monotonic compacted_through, no overwriting newer memory. Preserve ownership and cancellation.
+   Provider/validation/timeout/CAS failure falls back safely; no background correctness dependency.
+9. Migration 001 is immutable. Ordered runner validates applied checksums/prefix and applies only
+   missing migrations. Reject gaps, unknown versions and modified checksums. 002 adds memory PK/FK,
+   coverage, revision, JSON object payload and updated_at, no duplicate subject. No startup DDL.
+10. Reject credentials, DSNs, SDP/media and provider/tool protocol in memory. Metadata-only
+    compaction logs and separate duration/model-call counters. Google credentials remain isolated.
+11. Keep Live lifecycle, reauthorization, basic voice, grounding and quotation authority unchanged.
+    No RAG, cross-conversation recall, UI history or new decision-support response categories.
+12. Tests use FakeCompactor/mocked SDK. Opt-in PostgreSQL smoke creates/deletes an isolated synthetic
+    cluster; never read the user's real DB URL. Scripted semantics are not real-model quality proof.

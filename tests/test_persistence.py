@@ -298,10 +298,9 @@ async def test_schema_mismatch_fails_startup_safely_and_closes_pool(monkeypatch,
 
 
 async def test_migration_explicit_version_checksum_and_repeat_validation(monkeypatch):
-    import hashlib
-
-    checksum = hashlib.sha256(migration.MIGRATION.read_text(encoding="utf-8").encode()).hexdigest()
-    db = ScriptedConnection(None, {"name": None}, None, None, None, None)
+    known = migration.migrations()
+    rows = [{"version": m.version, "checksum": m.checksum} for m in known]
+    db = ScriptedConnection(None, {"name": None}, *([None] * 8))
 
     @asynccontextmanager
     async def connection():
@@ -312,12 +311,12 @@ async def test_migration_explicit_version_checksum_and_repeat_validation(monkeyp
     )
     await migration.migrate("postgresql://localhost/offline")
     assert db.commits == 1
-    assert db.calls[-1][1] == (checksum,)
-    assert "unique" in migration.MIGRATION.read_text().lower()
+    inserts = [params for query, params in db.calls if query.startswith("INSERT INTO")]
+    assert inserts == [(m.version, m.checksum) for m in known]
     db.calls.clear()
-    db.results = [None, {"name": "schema_version"}, [{"version": 1, "checksum": checksum}], None]
+    db.results = [None, {"name": "schema_version"}, rows, None, None, None, None]
     await migration.migrate("postgresql://localhost/offline")
-    assert db.commits == 2 and not any("CREATE" in q for q, _ in db.calls)
+    assert db.commits == 2 and not any("CREATE" in q or "INSERT" in q for q, _ in db.calls)
 
 
 def test_selector_loop_factory_matches_uvicorn():

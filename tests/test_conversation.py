@@ -664,6 +664,7 @@ def test_live_startup_budget_drops_whole_oldest_turns():
     assert all(
         m["content"][0]["text"] == "ñ" * 350
         for m in wire
-        if m["role"] == "assistant" and not m["content"][0]["text"].startswith("Previous")
+        if m["role"] == "assistant"
+        and not m["content"][0]["text"].startswith(("Previous", "Context coverage"))
     )
     assert len(context.turns) == 16  # Provider projection does not mutate stored context.

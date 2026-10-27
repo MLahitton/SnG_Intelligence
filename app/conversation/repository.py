@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Protocol
 
 from app.conversation.context import ConversationTurn
+from app.conversation.memory import ConversationMemory
 from app.core.errors import IntelligenceError
 
 
@@ -41,6 +42,19 @@ class ConversationEntry:
     version: int = 0
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class StoredConversationTurn:
+    ordinal: int
+    turn: ConversationTurn
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class StoredConversationMemory:
+    compacted_through: int
+    revision: int
+    payload: ConversationMemory
+
+
 class ConversationRepository(Protocol):
     async def create(self, subject: str) -> ConversationEntry: ...
     async def get(self, key: str, subject: str) -> ConversationEntry: ...
@@ -53,3 +67,23 @@ class ConversationRepository(Protocol):
         self, key: str, subject: str, *, limit: int | None = None
     ) -> tuple[ConversationTurn, ...]: ...
     async def ready(self) -> None: ...
+
+    async def get_memory(self, key: str, subject: str) -> StoredConversationMemory | None: ...
+    async def save_memory(
+        self,
+        key: str,
+        subject: str,
+        memory: ConversationMemory,
+        compacted_through: int,
+        expected_revision: int,
+    ) -> StoredConversationMemory: ...
+    async def list_turn_records(
+        self,
+        key: str,
+        subject: str,
+        *,
+        after: int,
+        through: int,
+        limit: int,
+        latest: bool = False,
+    ) -> tuple[StoredConversationTurn, ...]: ...

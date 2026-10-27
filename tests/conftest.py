@@ -204,3 +204,14 @@ def conversation_repository(monkeypatch):
     monkeypatch.setenv("SNG_INTELLIGENCE_DATABASE_URL", "postgresql://localhost/offline_test")
     monkeypatch.setattr("app.main.open_repository", open_test_repository)
     return repository
+
+
+@pytest.fixture(autouse=True)
+def offline_memory_compactor(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.agent.errors import ProviderUnavailable
+
+    compactor = AsyncMock(side_effect=ProviderUnavailable())
+    monkeypatch.setattr("app.conversation.store.compact_memory", compactor)
+    return compactor

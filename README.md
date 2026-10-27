@@ -875,7 +875,8 @@ No se cambió el modelo seleccionado ni se configuró VAD de Realtime en GPT-Liv
 
 PostgreSQL propio de Intelligence conserva conversaciones y todos los turnos validados.
 No se accede a la base ni a tablas operacionales de SnG Control. No hay TTL de conversación,
-retención automática, eliminación de turnos ni resúmenes. Cerrar un hilo lo archiva; no borra
+retención automática ni eliminación de turnos. Long Context V1 añade la memoria estructurada
+descrita abajo. Cerrar un hilo lo archiva; no borra
 su historial. El límite de Live y de sus credenciales sigue siendo independiente: máximo 600 s.
 
 ```text
@@ -906,8 +907,10 @@ Antes de iniciar el API, provisionar la base y ejecutar explícitamente:
 
 Si las variables ya están en el entorno, basta `python -m app.conversation.persistence.migrate`.
 La migración `001_conversations.sql` crea el schema `intelligence_conversations`, tablas
-`conversations` y `turns`, y el runner registra versión/checksum en `schema_version`.
-Repetir el comando valida la versión existente; no recrea tablas ni borra historial.
+`conversations` y `turns`. `002_conversation_memory.sql` añade únicamente `conversation_memory`.
+El runner descubre migraciones ordenadas, valida checksums de las aplicadas y registra cada
+versión en `schema_version`. En una base v1 aplica solo 002. Repetir el comando es idempotente;
+rechaza gaps, checksums alterados y versiones desconocidas. No recrea tablas ni borra historial.
 El checksum normaliza saltos de línea entre Windows/Linux. Startup verifica versión,
 checksum y columnas; falla de forma segura si falta configuración, conexión o migración.
 No hay creación automática de tablas en startup. `/health` indica proceso vivo;
@@ -947,8 +950,9 @@ mínimas verificadas. No guarda Presentation, tool output/protocol, reasoning, o
 provider/session IDs, Google tokens, API keys, SDP ni audio. Los guards rechazan credenciales
 reconocibles antes de guardarlas; logs contienen solo categorías, contadores y duraciones.
 
-La DB conserva todos los turnos. `build_context` usa hasta 16 turnos recientes y 16000
-caracteres renderizados, descartando turnos completos solo de la proyección al modelo.
+La DB conserva todos los turnos. `build_context` combina memoria estructurada y hasta 16
+turnos recientes, dentro de 16000 caracteres renderizados. Descarta turnos completos solo
+de la proyección al modelo.
 Live mantiene su límite conservador de 6000 bytes UTF-8 de input. Historia y referencias
 sirven para resolver nombres/ordinales, nunca como evidencia actual. Cada Agent.run vuelve
 a consultar herramientas oficiales con evidencia nueva. Grounding y `store=false` no cambian.
@@ -1439,3 +1443,96 @@ Los ítems de cotización nunca se representan como TaskItem; no hay nuevas ruta
 públicos de navegación. El nombre oficial del proyecto sigue siendo la identidad principal.
 El repair único de grounding se conserva; los IDs internos no se vuelven referencias válidas.
 No cambian Frontend, Backend, audio, VAD, modelos Live ni el ciclo de credenciales.
+
+
+## Long Context V1 — memoria gerencial durable
+
+Hay tres capas separadas: transcript completo durable, memoria estructurada durable y turnos
+recientes completos. La compactación nunca borra ni modifica `turns`. No hay memoria entre
+conversaciones: un hilo nuevo empieza sin memoria. Cerrar archiva; reiniciar no pierde la memoria.
+
+`ConversationMemoryDraft` contiene `summary` (hasta 1800 caracteres), `topics`, `userDecisions`,
+`userAssumptions`, `openThreads` y `priorProposals` (hasta 6 textos de 240 caracteres por categoría).
+Los contratos son estrictos, sin campos adicionales ni inputs en errores. La prosa serializada
+se limita a 3000 caracteres/3200 bytes UTF-8; la memoria final a 5000 caracteres/4800 bytes.
+
+El compactor conserva decisiones explícitas, distingue propuestas del asistente y escenarios
+hipotéticos, e incorpora revocaciones y temas resueltos. No infiere aceptación ni crea campos de
+estado, precios, plazos o cotización actuales. Estas reglas semánticas guían al modelo; las pruebas
+con respuestas programadas verifican el protocolo, no demuestran calidad semántica del proveedor.
+
+`historicalReferents` se agrega en el servidor desde las referencias verificadas de los turnos
+compactados y la memoria anterior. Se deduplica por tipo/IDs, ordena por última aparición y retiene
+hasta 16. Si los labels agotan el presupuesto se eliminan referencias antiguas completas, nunca
+se cortan labels o IDs. El compactor no puede devolver IDs ni este campo.
+
+**Memoria conversacional no es verdad empresarial.** Entra como datos `assistant`, después de
+una regla `developer` estática. No siembra evidencia ni autoriza directamente las tools de
+cotización. Incluso con memoria y sin turnos recientes, una respuesta operacional exige lecturas
+frescas. Las correcciones recientes prevalecen sobre memoria antigua. No se amplían las categorías
+de respuesta ni se introduce recall libre sin provenance, RAG, embeddings o búsqueda semántica.
+
+### Compactación y límites
+
+Antes de construir el siguiente contexto (chat, delegación o apertura de Live), si hay más de
+16 turnos posteriores a `compactedThrough`, se compacta un solo lote de hasta 8 turnos antiguos,
+intentando dejar al menos 12 recientes. El input incluye memoria previa, ese lote completo y
+referentes permitidos; máximo 48000 caracteres/144000 bytes. Nunca se corta un turno. Un turno
+individual que exceda el límite deja la memoria sin avanzar y activa fallback explícito.
+
+No hay workers en background. Un historial antiguo de 100 turnos se incorpora gradualmente,
+un lote por operación; puede haber un gap temporal entre memoria y ventana reciente. El contexto
+incluye una señal de cobertura incompleta, también cuando el límite de tamaño descarta turnos.
+El transcript íntegro permanece en PostgreSQL; no se afirma que esa proyección sea exhaustiva.
+
+Se leen memoria/lote y se liberan conexiones antes del proveedor. Después se guarda en una
+transacción corta con CAS de `revision` y avance monotónico de `compacted_through`. Un resultado
+tardío no sobrescribe memoria nueva. Timeout (20 s del proveedor/25 s de compactación), 429,
+indisponibilidad, salida inválida/sensible o conflicto CAS conservan la memoria anterior y dejan
+continuar con contexto reciente acotado. Cancelación y fallos de ownership no se ocultan.
+Los locks de ejecución siguen siendo locales: se mantiene el despliegue con un worker.
+
+### Provider y Live
+
+`SNG_INTELLIGENCE_MEMORY_MODEL` es opcional; vacío usa `SNG_INTELLIGENCE_MODEL` y la misma
+`OPENAI_API_KEY`. Configuración lazy, sin llamadas en startup ni en resume por sí solo.
+El adapter usa el SDK oficial, Responses y Structured Outputs estrictos, `store=false`,
+sin tools, web, clientes operacionales, `reasoning`, `previous_response_id` ni Conversations.
+No recibe autenticación Google ni contexto de infraestructura. Input y output pasan guards.
+Ver [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+Live usa el mismo `ConversationContext` y la misma memoria, con input de contenido limitado a
+6000 bytes UTF-8; descarta turnos recientes completos si hace falta, no crea otra memoria.
+Se conserva reautorización antes de cada Agent.run, grounding local, reparación acotada y
+lifecycle de credenciales/sideband. La telemetría agrega solo categorías, cantidades y tiempos:
+`conversation_memory_compaction_started/succeeded/failed`, `conversation_memory_compaction_ms`
+y `conversation_memory_model_calls`, separados de las rondas del Agent. No registra contenido,
+subjects, IDs de conversación, referentes o credenciales.
+
+### Actualización y verificación
+
+`001_conversations.sql` permanece byte-identical. `002` agrega `conversation_memory` con PK/FK
+al hilo, `compacted_through`, `revision`, `payload` JSON object y `updated_at`, sin duplicar subject.
+El ownership continúa en `conversations`. Las conversaciones existentes no necesitan una fila
+de memoria hasta su primera compactación. No se modifica timezone ni historial existente.
+
+Con las variables configuradas, antes de iniciar la versión nueva ejecutar:
+
+```powershell
+python -m app.conversation.persistence.migrate
+```
+
+Las pruebas normales son offline. Cubren 100 turnos, lotes y límites, fallos, CAS, semántica
+programada, aislamiento, contratos reales del SDK mockeados, grounding, 35 turnos y nueva sesión
+Live con cotización fresca. El smoke opcional siguiente crea su propio clúster PostgreSQL temporal
+con datos sintéticos, prueba v1→v2, repetición, CAS y reinicio DB/pool/runtime, y lo elimina al terminar.
+Nunca usa `SNG_INTELLIGENCE_DATABASE_URL` ni la base real del usuario:
+
+```powershell
+$env:SNG_TEST_POSTGRES_BIN = 'C:\Program Files\PostgreSQL\17\bin'
+pytest tests/test_memory_postgres.py
+Remove-Item Env:SNG_TEST_POSTGRES_BIN
+```
+
+Sin esa variable, este único smoke se omite. La migración de la base real se ejecuta manualmente
+después de publicar; los tests no la migran ni llaman OpenAI real.

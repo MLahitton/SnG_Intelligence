@@ -112,7 +112,7 @@ class OpenAILiveProvider:
         self, sdp: str, context: ConversationContext | None = None
     ) -> LiveSessionResponse:
         session = session_config(self._settings)
-        if context is not None and context.turns:
+        if context is not None and context.has_history:
             session["input"] = context.live_input()
         payload = {
             "session": session,

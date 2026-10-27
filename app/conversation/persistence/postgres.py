@@ -13,6 +13,7 @@ from pydantic import SecretStr, TypeAdapter
 
 from app.agent.contracts import Reference
 from app.conversation.context import ConversationTurn, check_context_text
+from app.conversation.memory import ConversationMemory
 from app.conversation.repository import (
     ConversationBusy,
     ConversationEntry,
@@ -20,6 +21,8 @@ from app.conversation.repository import (
     ConversationRepository,
     ConversationStorageUnavailable,
     ConversationUnavailable,
+    StoredConversationMemory,
+    StoredConversationTurn,
 )
 
 Connection = psycopg.AsyncConnection[dict[str, Any]]
@@ -46,10 +49,13 @@ class PostgresConversationRepository:
         async with self._connection() as connection:
             await check_schema(connection)
 
-    async def _owned(self, connection: Connection, key: str, subject: str) -> ConversationEntry:
+    async def _owned(
+        self, connection: Connection, key: str, subject: str, *, lock: bool = False
+    ) -> ConversationEntry:
         cursor = await connection.execute(
             "SELECT conversation_id, subject, created_at, last_activity_at, closed_at, version "
-            "FROM intelligence_conversations.conversations WHERE conversation_id = %s",
+            "FROM intelligence_conversations.conversations WHERE conversation_id = %s"
+            + (" FOR UPDATE" if lock else ""),
             (key,),
         )
         row = await cursor.fetchone()
@@ -178,6 +184,105 @@ class PostgresConversationRepository:
                 for value in (turn.user_content, turn.assistant_content, turn.references):
                     check_context_text(value)
                 result.append(turn)
+            return tuple(result)
+
+    async def get_memory(self, key: str, subject: str) -> StoredConversationMemory | None:
+        async with self._connection() as connection:
+            await self._owned(connection, key, subject)
+            cursor = await connection.execute(
+                "SELECT compacted_through, revision, payload FROM "
+                "intelligence_conversations.conversation_memory WHERE conversation_id = %s",
+                (key,),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+            return StoredConversationMemory(
+                row["compacted_through"],
+                row["revision"],
+                ConversationMemory.model_validate_json(json.dumps(row["payload"])),
+            )
+
+    async def save_memory(
+        self,
+        key: str,
+        subject: str,
+        memory: ConversationMemory,
+        compacted_through: int,
+        expected_revision: int,
+    ) -> StoredConversationMemory:
+        memory = ConversationMemory.model_validate_json(memory.model_dump_json(by_alias=True))
+        async with self._connection() as connection, connection.transaction():
+            entry = await self._owned(connection, key, subject, lock=True)
+            if entry.closed_at is not None:
+                raise ConversationUnavailable()
+            if not 0 < compacted_through <= entry.version or expected_revision < 0:
+                raise ConversationBusy()
+            payload = Jsonb(memory.model_dump(mode="json", by_alias=True))
+            if expected_revision == 0:
+                cursor = await connection.execute(
+                    "INSERT INTO intelligence_conversations.conversation_memory "
+                    "(conversation_id, compacted_through, revision, payload) "
+                    "VALUES (%s, %s, 1, %s) "
+                    "ON CONFLICT (conversation_id) DO NOTHING RETURNING revision",
+                    (key, compacted_through, payload),
+                )
+            else:
+                cursor = await connection.execute(
+                    "UPDATE intelligence_conversations.conversation_memory "
+                    "SET compacted_through = %s, revision = revision + 1, "
+                    "payload = %s, updated_at = now() "
+                    "WHERE conversation_id = %s AND revision = %s AND "
+                    "compacted_through < %s RETURNING revision",
+                    (compacted_through, payload, key, expected_revision, compacted_through),
+                )
+            row = await cursor.fetchone()
+            if row is None:
+                raise ConversationBusy()
+            return StoredConversationMemory(compacted_through, row["revision"], memory)
+
+    async def list_turn_records(
+        self,
+        key: str,
+        subject: str,
+        *,
+        after: int,
+        through: int,
+        limit: int,
+        latest: bool = False,
+    ) -> tuple[StoredConversationTurn, ...]:
+        if after < 0 or through < after or not 1 <= limit <= 16:
+            raise ValueError("Invalid history window")
+        async with self._connection() as connection:
+            await self._owned(connection, key, subject)
+            cursor = await connection.execute(
+                "SELECT ordinal, modality, user_content, assistant_content, "
+                'response_type, "references", created_at '
+                "FROM intelligence_conversations.turns WHERE conversation_id = %s "
+                "AND ordinal > %s AND ordinal <= %s ORDER BY ordinal "
+                + ("DESC" if latest else "ASC")
+                + " LIMIT %s",
+                (key, after, through, limit),
+            )
+            rows = await cursor.fetchall()
+            result = []
+            for row in reversed(rows) if latest else rows:
+                refs = TypeAdapter(list[Reference]).validate_json(json.dumps(row["references"]))
+                turn = TypeAdapter(ConversationTurn).validate_python(
+                    {
+                        "modality": row["modality"],
+                        "user_content": row["user_content"],
+                        "assistant_content": row["assistant_content"],
+                        "response_type": row["response_type"],
+                        "references": json.dumps(
+                            [r.model_dump(mode="json", by_alias=True) for r in refs]
+                        ),
+                        "timestamp": row["created_at"],
+                    }
+                )
+                for value in (turn.user_content, turn.assistant_content, turn.references):
+                    check_context_text(value)
+                result.append(StoredConversationTurn(row["ordinal"], turn))
             return tuple(result)
 
 
