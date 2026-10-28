@@ -5,6 +5,7 @@ import httpx
 from pydantic import SecretStr, TypeAdapter, ValidationError
 
 from app.contracts.auth import CurrentUser
+from app.contracts.client_decision import ClientQuotationDecision
 from app.contracts.documents import Document, ProjectDocuments
 from app.contracts.management import ManagementOverview, ManagementTask
 from app.contracts.notifications import ProjectNotification
@@ -160,6 +161,19 @@ class SnGControlClient:
             TypeAdapter(list[ProjectNotification]),
             "notifications",
         )
+
+    async def get_client_quotation_decision(
+        self, project_id: UUID | str
+    ) -> ClientQuotationDecision:
+        identifier = validate_project_id(project_id)
+        result = await self._get(
+            f"/api/projects/{identifier}/client-quotation-decision",
+            TypeAdapter(ClientQuotationDecision),
+            "client_quotation_decision",
+        )
+        if result.project_id != identifier:
+            raise BackendResponseError()
+        return result
 
     async def get_budget_quotation(self, project_id: UUID | str) -> ConfirmedBudgetQuotation | None:
         identifier = validate_project_id(project_id)

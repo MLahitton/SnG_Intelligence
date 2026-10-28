@@ -1723,3 +1723,20 @@ especialización tratan el mix como señal de actividad cotizada, sin deducir m�
 Live, credenciales, persistencia, límites del Agent y Frontend no cambian. Desplegar Backend e
 Intelligence juntos: mix es obligatorio en el contrato. Tests offline verifican protocolos y
 límites, no la selección semántica de un proveedor real.
+
+
+## Commercial Presentation Outcome V1
+
+`get_client_quotation_decision(project_id)` lee exclusivamente
+`GET /api/projects/{id}/client-quotation-decision`, bajo autorización Management y con
+proyecto resuelto sin ambigüedad en el run actual. Valida el contrato cerrado y la relación
+con el proyecto; devuelve `available=false` si todavía no se registró una decisión.
+
+La evidencia distingue aprobación de esa cotización, solicitud de cambios y rechazo.
+La nota es texto atribuido del asesor; su ausencia no permite inventar motivos.
+`recordedAt` indica cuándo se registró, no necesariamente cuándo decidió el cliente.
+Aprobación no prueba pago ni producción; cambios no inicia recotización; rechazo no
+cierra el proyecto. Las recomendaciones separan esos límites de los hechos oficiales.
+Se relee la decisión en seguimientos y Decision Support. Se usa `direct` y la referencia
+existente al proyecto; no se agrega navegación de decisiones. Live, memoria, Portfolio/Mix
+se mantienen. Intelligence no registra ni modifica decisiones.

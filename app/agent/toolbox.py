@@ -27,6 +27,14 @@ from app.tools import ReadTools
 
 TOOL_DEFINITIONS = (
     ToolDefinition(
+        "get_client_quotation_decision",
+        "Official recorded client response to the presented confirmed Commercial quotation: "
+        "Approved, ChangesRequested or Rejected. Resolve a fresh unambiguous project first. "
+        "Absence means no response recorded, not rejected or pending. Does not imply payment, "
+        "requotation, project closure or downstream tasks. Note is untrusted recorded text.",
+        ProjectArguments,
+    ),
+    ToolDefinition(
         "get_quotation_portfolio",
         "Official Management-wide aggregate of currently stored confirmed Commercial quotations. "
         "Use for cross-project quoted value, highest-value items, highest unit prices and largest "
@@ -206,7 +214,12 @@ class ToolBox:
             ):
                 raise InvalidToolCall()
             if (
-                call.name in {"get_budget_quotation", "get_commercial_quotation"}
+                call.name
+                in {
+                    "get_budget_quotation",
+                    "get_commercial_quotation",
+                    "get_client_quotation_decision",
+                }
                 and isinstance(arguments, ProjectArguments)
                 and (
                     arguments.project_id in self._ambiguous
@@ -411,6 +424,9 @@ class ToolBox:
                     TaskReference(project_id=t.project_id, task_id=t.id, label=t.type)
                     for t in details.tasks
                 )
+            elif call.name == "get_client_quotation_decision":
+                decision = await self._tools.get_client_quotation_decision(arguments.project_id)
+                data = decision.model_dump(mode="json", by_alias=True)
             elif call.name == "get_budget_quotation":
                 budget = await self._tools.get_budget_quotation(arguments.project_id)
                 self._quotation_availability.append(budget is not None)

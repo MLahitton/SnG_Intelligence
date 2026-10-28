@@ -7,6 +7,7 @@ from uuid import UUID
 from app.auth.management_guard import require_management
 from app.clients.sng_control import SnGControlClient, validate_project_id
 from app.contracts.analysis import ComparedProject, ManagementSnapshot
+from app.contracts.client_decision import ClientQuotationDecision
 from app.contracts.documents import Document, ProjectDocuments
 from app.contracts.management import AttentionItem, ManagementOverview, ManagementTask
 from app.contracts.notifications import ProjectNotification
@@ -71,6 +72,13 @@ class ReadTools:
     async def list_management_tasks(self) -> list[ManagementTask]:
         await self._authorize()
         return await self._client.list_management_tasks()
+
+    async def get_client_quotation_decision(
+        self, project_id: UUID | str
+    ) -> ClientQuotationDecision:
+        identifier = validate_project_id(project_id)
+        await self._authorize()
+        return await self._client.get_client_quotation_decision(identifier)
 
     async def get_budget_quotation(self, project_id: UUID | str) -> ConfirmedBudgetQuotation | None:
         identifier = validate_project_id(project_id)

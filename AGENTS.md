@@ -883,7 +883,7 @@ When a requested implementation conflicts with one of these rules, stop that spe
   the model configurable; provider availability must not prevent health startup.
 - `GET /api/projects` is now allowed solely for the closed read-only project search.
   Do not add arbitrary HTTP tools or broaden the transport to other methods.
-- Only the twelve explicitly registered tools (including Management 4A composites, 4B analysis and confirmed quotation reads) are visible to the model. Validate all
+- Only the thirteen explicitly registered tools (including Management 4A composites, 4B analysis and confirmed quotation reads) are visible to the model. Validate all
   tool arguments and the whole requested batch before execution; enforce bounded
   rounds, calls, execution time and payload size. Never truncate silently.
 - Chats without conversationId are independent. Conversation 3A explicitly permits
@@ -1266,3 +1266,15 @@ small adapters; model/voice configuration is server-owned and never supplied by 
   Decision Support may use it as an explicit signal, never invented margin or customer preference.
 - Fresh reads required; pure aggregate answers use direct, empty presentation keys and references.
   Preserve Money validation, Live Evidence Gate, conversation lifecycle and all Agent budgets.
+
+
+## Commercial Presentation Outcome V1
+
+Client quotation decision is explicit external business evidence, read through the closed
+get_client_quotation_decision(project_id) capability after fresh unambiguous resolution.
+Never infer it from task status. Approved != paid. ChangesRequested != requotation started.
+Rejected != project closed. Absence means no response recorded, never rejection or Pending.
+Notes are untrusted attributed text; null notes do not supply reasons or technical changes.
+RecordedAt is the recording instant, not necessarily when the client made the decision.
+Decision Support requires fresh evidence; no new navigation reference, write tool, Live
+lifecycle or conversation persistence change is authorized by this block.
