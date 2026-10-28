@@ -44,6 +44,7 @@ def quotation_data(
         items.append(projected)
         total_quantity += values.quantity
     data.update(
+        versionNumber=quotation.version_number,
         confirmedAt=quotation.confirmed_at.isoformat(),
         itemCount=len(quotation.items),
         totalQuantity=total_quantity,

@@ -93,6 +93,7 @@ def quotations(payloads):
         projectId=PROJECT_ID,
         commercialQuotationId=CLIENT_ID,
         currencyCode="COP",
+        versionNumber=1,
         confirmedAt=DATE,
         # Intentionally not a recomputed sum of item totals: the Backend owns this number.
         projectTotal=98.12,

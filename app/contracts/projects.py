@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field, model_validator
 
 from app.contracts.base import BackendContract
 
@@ -25,6 +25,7 @@ class Project(BackendContract):
 
 
 class ProjectTask(BackendContract):
+    quotation_round: int | None = Field(gt=0)
     id: UUID
     project_id: UUID
     area: str
@@ -37,6 +38,15 @@ class ProjectTask(BackendContract):
     deadline_at: datetime | None
     was_overdue: bool | None
     lead_time_status: str
+
+    @model_validator(mode="after")
+    def quotation_round_required(self) -> "ProjectTask":
+        if (
+            self.type in {"PrepareQuotation", "ReviewQuotation", "PresentQuotationToClient"}
+            and self.quotation_round is None
+        ):
+            raise ValueError("Quotation task requires a round")
+        return self
 
 
 class ProjectDetails(BackendContract):

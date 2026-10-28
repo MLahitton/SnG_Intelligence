@@ -1,6 +1,8 @@
 from datetime import datetime
 from uuid import UUID
 
+from pydantic import Field
+
 from app.contracts.base import BackendContract
 
 
@@ -56,6 +58,7 @@ class ManagementOverview(BackendContract):
 
 
 class ManagementTask(BackendContract):
+    quotation_round: int = Field(gt=0)
     task_id: UUID
     project_id: UUID
     project_name: str

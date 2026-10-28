@@ -27,6 +27,15 @@ from app.tools import ReadTools
 
 TOOL_DEFINITIONS = (
     ToolDefinition(
+        "get_quotation_rounds",
+        "Official quotation-round history: Budget preparation, Commercial review/confirmation, "
+        "presentation, client decisions and formal requotation requests. Resolve project freshly "
+        "and unambiguously first. Use for rounds, previous responses, requotation or how the "
+        "current round was reached. History is not current state; use current tools when needed. "
+        "Coverage is explicit; never count truncated results as all confirmed quotations.",
+        ProjectArguments,
+    ),
+    ToolDefinition(
         "get_client_quotation_decision",
         "Official recorded client response to the presented confirmed Commercial quotation: "
         "Approved, ChangesRequested or Rejected. Resolve a fresh unambiguous project first. "
@@ -219,6 +228,7 @@ class ToolBox:
                     "get_budget_quotation",
                     "get_commercial_quotation",
                     "get_client_quotation_decision",
+                    "get_quotation_rounds",
                 }
                 and isinstance(arguments, ProjectArguments)
                 and (
@@ -424,6 +434,10 @@ class ToolBox:
                     TaskReference(project_id=t.project_id, task_id=t.id, label=t.type)
                     for t in details.tasks
                 )
+            elif call.name == "get_quotation_rounds":
+                history = await self._tools.get_quotation_rounds(arguments.project_id)
+                data = history.model_dump(mode="json", by_alias=True)
+                complete = not history.has_more
             elif call.name == "get_client_quotation_decision":
                 decision = await self._tools.get_client_quotation_decision(arguments.project_id)
                 data = decision.model_dump(mode="json", by_alias=True)

@@ -7,6 +7,7 @@ from app.contracts.quotations import QuotationContract
 
 
 class ClientQuotationDecision(QuotationContract):
+    quotation_round: int | None = Field(gt=0)
     available: bool
     project_id: UUID
     commercial_quotation_id: UUID | None
@@ -24,7 +25,7 @@ class ClientQuotationDecision(QuotationContract):
             self.recorded_at,
         )
         if self.available:
-            if any(value is None for value in required):
+            if self.quotation_round is None or any(value is None for value in required):
                 raise ValueError("Incomplete recorded decision")
         elif any(value is not None for value in (*required, self.note)):
             raise ValueError("Unavailable decision contains data")

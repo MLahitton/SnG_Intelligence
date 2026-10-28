@@ -22,6 +22,7 @@ PATH = f"/api/projects/{PROJECT_ID}/client-quotation-decision"
 def decision(payloads):
     value = dict(
         available=True,
+        quotationRound=1,
         projectId=PROJECT_ID,
         commercialQuotationId=TASK_ID,
         presentQuotationTaskId=TASK_ID,

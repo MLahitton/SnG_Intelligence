@@ -111,6 +111,7 @@ BackendOperation = Literal[
     "budget_quotation",
     "commercial_quotation",
     "client_quotation_decision",
+    "quotation_rounds",
     "quotation_portfolio",
 ]
 

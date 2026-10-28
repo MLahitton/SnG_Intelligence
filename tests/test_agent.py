@@ -321,6 +321,7 @@ def test_registered_tools_are_explicit_and_schemas_are_closed():
     assert {t.name for t in TOOL_DEFINITIONS} == {
         "get_quotation_portfolio",
         "get_client_quotation_decision",
+        "get_quotation_rounds",
         "get_budget_quotation",
         "get_commercial_quotation",
         "analyze_project_documents",

@@ -122,6 +122,7 @@ def test_public_client_and_tool_surfaces_are_closed():
     assert {name for name in dir(ReadTools) if not name.startswith("_")} == {
         "get_quotation_portfolio",
         "get_client_quotation_decision",
+        "get_quotation_rounds",
         "get_budget_quotation",
         "get_commercial_quotation",
         "get_management_snapshot",
@@ -136,6 +137,7 @@ def test_public_client_and_tool_surfaces_are_closed():
     assert {name for name in dir(SnGControlClient) if not name.startswith("_")} == {
         "get_management_quotation_portfolio",
         "get_client_quotation_decision",
+        "get_quotation_rounds",
         "get_budget_quotation",
         "get_commercial_quotation",
         "get_current_user",

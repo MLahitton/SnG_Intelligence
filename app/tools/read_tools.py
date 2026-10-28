@@ -14,6 +14,7 @@ from app.contracts.notifications import ProjectNotification
 from app.contracts.portfolio import ManagementQuotationPortfolio
 from app.contracts.presentation import Coverage
 from app.contracts.projects import ProjectCandidate, ProjectDetails
+from app.contracts.quotation_rounds import QuotationRounds
 from app.contracts.quotations import ConfirmedBudgetQuotation, ConfirmedCommercialQuotation
 from app.core.errors import InvalidArguments, ManagementRequired
 from app.core.latency import measure
@@ -72,6 +73,11 @@ class ReadTools:
     async def list_management_tasks(self) -> list[ManagementTask]:
         await self._authorize()
         return await self._client.list_management_tasks()
+
+    async def get_quotation_rounds(self, project_id: UUID | str) -> QuotationRounds:
+        identifier = validate_project_id(project_id)
+        await self._authorize()
+        return await self._client.get_quotation_rounds(identifier)
 
     async def get_client_quotation_decision(
         self, project_id: UUID | str

@@ -38,6 +38,7 @@ def anyio_backend():
 def payloads():
     task = {
         "taskId": TASK_ID,
+        "quotationRound": 1,
         "projectId": PROJECT_ID,
         "projectName": "Proyecto",
         "clientId": CLIENT_ID,
@@ -116,6 +117,7 @@ def payloads():
         f"/api/projects/{PROJECT_ID}/tasks": [
             {
                 "id": TASK_ID,
+                "quotationRound": 1,
                 "projectId": PROJECT_ID,
                 "area": "Budgets",
                 "type": "FutureType",

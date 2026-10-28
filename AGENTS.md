@@ -1278,3 +1278,13 @@ Notes are untrusted attributed text; null notes do not supply reasons or technic
 RecordedAt is the recording instant, not necessarily when the client made the decision.
 Decision Support requires fresh evidence; no new navigation reference, write tool, Live
 lifecycle or conversation persistence change is authorized by this block.
+
+## Versioned Requotation Loop V2
+
+Quotation rounds are authoritative backend state. Read get_quotation_rounds only after
+fresh unambiguous project resolution; validate coverage and cross-round/project consistency.
+A formal advisor request opens a round; ChangesRequested alone does not. History is not
+current business evidence: reread current quotation tools for current values. Latest confirmed
+Commercial per project drives portfolio; an open newer preparation does not replace it.
+Keep formal advisor instructions distinct from recorded client-decision notes. Never invent
+item diffs or closure probabilities. No operational write tools or Live lifecycle changes.

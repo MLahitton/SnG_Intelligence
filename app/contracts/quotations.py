@@ -94,6 +94,7 @@ class CommercialQuotationItem(QuotationContract):
 
 
 class ConfirmedCommercialQuotation(QuotationContract):
+    version_number: int = Field(gt=0)
     project_id: UUID
     commercial_quotation_id: UUID
     confirmed_at: datetime

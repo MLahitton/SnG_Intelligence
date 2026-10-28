@@ -11,6 +11,7 @@ from app.contracts.management import ManagementOverview, ManagementTask
 from app.contracts.notifications import ProjectNotification
 from app.contracts.portfolio import ManagementQuotationPortfolio
 from app.contracts.projects import Project, ProjectTask
+from app.contracts.quotation_rounds import QuotationRounds
 from app.contracts.quotations import ConfirmedBudgetQuotation, ConfirmedCommercialQuotation
 from app.core.errors import (
     AuthenticationRequired,
@@ -161,6 +162,17 @@ class SnGControlClient:
             TypeAdapter(list[ProjectNotification]),
             "notifications",
         )
+
+    async def get_quotation_rounds(self, project_id: UUID | str) -> QuotationRounds:
+        identifier = validate_project_id(project_id)
+        result = await self._get(
+            f"/api/projects/{identifier}/quotation-rounds",
+            TypeAdapter(QuotationRounds),
+            "quotation_rounds",
+        )
+        if result.project_id != identifier:
+            raise BackendResponseError()
+        return result
 
     async def get_client_quotation_decision(
         self, project_id: UUID | str

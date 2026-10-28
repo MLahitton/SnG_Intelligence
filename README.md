@@ -1740,3 +1740,21 @@ cierra el proyecto. Las recomendaciones separan esos límites de los hechos ofic
 Se relee la decisión en seguimientos y Decision Support. Se usa `direct` y la referencia
 existente al proyecto; no se agrega navegación de decisiones. Live, memoria, Portfolio/Mix
 se mantienen. Intelligence no registra ni modifica decisiones.
+
+## Versioned Requotation Loop V2
+
+`get_quotation_rounds(project_id)` consulta el historial oficial después de resolver el
+proyecto con evidencia fresca. El contrato valida rondas positivas, versiones coincidentes,
+tareas del mismo proyecto, campos cerrados y cobertura (primeras 20 rondas ascendentes).
+`requestedChanges` es la instrucción formal del asesor a Presupuestos; no una cita literal
+del cliente. ChangesRequested por sí solo no abre ninguna ronda.
+
+Las tareas incluyen `quotationRound`; la lectura comercial incluye `versionNumber` y la
+decisión indica la ronda comercial actual, incluso si todavía no tiene respuesta registrada.
+Una ronda abierta no es una cotización confirmada: las consultas actuales releen la última
+versión confirmada. Portfolio/Mix cuenta exclusivamente la última comercial por proyecto,
+conservando la anterior mientras se prepara la siguiente. Los totales de tareas incluyen
+historia. No se calculan diferencias técnicas automáticas ni probabilidades de cierre.
+
+Intelligence sigue siendo de solo lectura. No cambian Live, grounding, memoria ni credenciales.
+Desplegar junto con los contratos V2 de Backend; no hay migración propia de Intelligence.
