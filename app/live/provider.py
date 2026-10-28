@@ -61,7 +61,7 @@ def session_config(settings: LiveSettings) -> dict[str, object]:
                 "model": settings.delegation_model,
                 "instructions": DELEGATION_INSTRUCTIONS + "\n" + CONTEXT_RULE,
                 "tools": [consultation_tool()],
-                "tool_choice": "auto",
+                "tool_choice": "required",
                 "parallel_tool_calls": False,
                 "max_output_tokens": settings.delegation_max_output_tokens,
                 "service_tier": settings.service_tier,

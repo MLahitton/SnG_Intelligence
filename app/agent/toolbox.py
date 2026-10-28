@@ -40,6 +40,9 @@ TOOL_DEFINITIONS = (
         "Confirmed Commercial quotation: latest technical snapshot, official prices and technical "
         "differences from Budget. Resolve an unambiguous project in this run first. Use first for "
         "generic technical/item/quantity questions, directly for prices/Commercial changes. "
+        "Official structured items, systems, glass, finish, dimensions, quantities, per-item m², "
+        "unit prices, item totals, project total and currency. Prefer over generic document "
+        "analysis to inspect, explain, compare or emphasize the confirmed quotation. "
         "itemCount counts rows; totalQuantity counts physical units, NEVER workflow tasks.",
         ProjectArguments,
     ),
@@ -47,6 +50,8 @@ TOOL_DEFINITIONS = (
         "analyze_project_documents",
         "Read actual document contents only when explicitly requested or when the requested "
         "conclusion inherently depends on document content; never for metadata-only questions. "
+        "Do not use for structured quotation data available through get_commercial_quotation. "
+        "Use for written payment terms, warranty clauses or other text outside quotation views. "
         "Not a general uncertainty fallback: do not use automatically for hypothetical "
         "operational scenarios, delays or expectations. Use current operational reads first. "
         "Resolve projects first. "
@@ -88,6 +93,7 @@ TOOL_DEFINITIONS = (
     ToolDefinition(
         "get_project_documents",
         "Document metadata only; never download bytes. Use for requested document listings, "
+        "not structured quotation facts available through get_commercial_quotation. "
         "metadata or selection needed for a document-content question. Not a general "
         "uncertainty fallback: do not query by default for scenario, recommendation or analysis "
         "when current project/tasks suffice. Delay, time or should do not imply a document need.",

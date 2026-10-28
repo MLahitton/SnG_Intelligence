@@ -1216,3 +1216,23 @@ small adapters; model/voice configuration is server-owned and never supplied by 
   Preserve the scenario fresh-read guard, run-local references, memory and Live lifecycle.
 - Scripted scenario/Live tests verify contracts and orchestration, not real-model tool choice
   or semantic entailment. Real smoke remains a separate manual validation.
+
+
+## Live Evidence Gate + Quotation Source Routing V1.2
+
+- GPT-Live is a conversational surface, never business authority. Fresh business answers must
+  cross Agent Core; historical answers cannot establish current prices, status or conclusions.
+- Keep Responses delegation and its sole consult_sng_intelligence function. tool_choice=required
+  applies AFTER Live delegates. Explicit Generate <|SpawnThinking|> policy covers business and
+  follow-ups; casual conversation/clarification stays local. Live still decides whether to delegate.
+- Live startup projection omits recent assistant answer prose, preserving CONTEXT_RULE, structured
+  memory, incomplete coverage, user utterances and ordered verified historical referents. Keep
+  the 6000-byte content bound with whole-turn eviction. History/memory is not fresh evidence.
+  Agent Core messages() and durable history remain unchanged, including full recent assistant prose.
+- Structured confirmed Commercial view precedes generic document analysis for fields already in
+  its contract. Inspect/explain/emphasize recommendations use fresh quotation evidence. Calling a
+  quotation a document does not imply a byte download. Written terms/clauses outside that contract
+  still use document tools; keep all byte limits, permission checks and attribution unchanged.
+- No keyword router, extra tools, public contracts, DB migrations or credential/lifecycle changes.
+  Preserve Money, Decision Support/Scenario guards and tool budgets. Offline scripted tests are
+  protocol regressions; real model delegation/routing requires a separate manual smoke.

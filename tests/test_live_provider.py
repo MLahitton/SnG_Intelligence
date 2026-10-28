@@ -45,7 +45,7 @@ async def test_real_http_contract_config_and_credential_isolation():
         delegation = session["delegation"]["responses"]
         assert delegation["model"] == "custom-delegation-model"
         assert delegation["parallel_tool_calls"] is False
-        assert delegation["tool_choice"] == "auto"
+        assert delegation["tool_choice"] == "required"
         assert len(delegation["tools"]) == 1
         tool = delegation["tools"][0]
         assert tool["name"] == "consult_sng_intelligence" and tool["strict"] is True

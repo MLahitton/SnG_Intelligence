@@ -653,18 +653,18 @@ def test_offline_text_to_live_to_text_and_reopen(settings, mock_backend, payload
 
 
 def test_live_startup_budget_drops_whole_oldest_turns():
-    context = ConversationContext(tuple(turn("ñ" * 350, question=str(i)) for i in range(16)))
+    context = ConversationContext(
+        tuple(turn("OLD BUSINESS ANSWER", question=str(i) + "ñ" * 350) for i in range(16))
+    )
     wire = context.live_input()
     assert len(wire) < len(context.messages())
-    assert wire[-3]["content"][0]["text"] == "15"
+    assert wire[-2]["content"][0]["text"] == "15" + "ñ" * 350
     assert (
         sum(len(part["text"].encode("utf-8")) for message in wire for part in message["content"])
         <= 6000
     )
-    assert all(
-        m["content"][0]["text"] == "ñ" * 350
-        for m in wire
-        if m["role"] == "assistant"
-        and not m["content"][0]["text"].startswith(("Previous", "Context coverage"))
-    )
+    assert all("OLD BUSINESS ANSWER" not in m["content"][0]["text"] for m in wire)
+    users = [m["content"][0]["text"] for m in wire if m["role"] == "user"]
+    assert 0 < len(users) < 16 and "0" + "ñ" * 350 not in users
+    assert "Context coverage is incomplete" in str(wire)
     assert len(context.turns) == 16  # Provider projection does not mutate stored context.

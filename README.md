@@ -1629,3 +1629,39 @@ answerMode=scenario interno, guard de lectura actual, responseTypes y lifecycle 
 scripted cubren escenarios sin documentos, consulta contractual con documentos, memoria obsoleta,
 límites cualitativos y tres turnos Live con nuevas lecturas. No prueban la selección semántica
 del modelo real: el caso de smoke debe repetirse manualmente en texto y Live.
+
+
+## Live Evidence Gate + Quotation Source Routing V1.2
+
+GPT-Live es una superficie conversacional, no una fuente de verdad empresarial. La política
+explícita `Generate <|SpawnThinking|>` solicita delegación antes de cada nueva respuesta sobre
+negocio, incluyendo seguimientos, precios, recomendaciones y escenarios. Saludos, agradecimientos
+y aclaraciones breves pueden continuar sin delegación. GPT-Live todavía decide si delega: el
+prompt no es un router determinista ni garantiza por sí solo la selección del proveedor.
+
+Una vez delega, `delegation.type=responses` y `delegation.responses.tool_choice=required`
+obligan al backend delegado a usar la única función `consult_sng_intelligence`. Esa función
+pasa por Agent Core y sus guardas de lecturas frescas. El resultado spokenAnswer es autoridad;
+no se permite completar números o conclusiones con historial. La configuración sigue
+[Delegation and tools](https://developers.openai.com/api/docs/guides/live-delegation) y la
+[política de prompting GPT-Live](https://developers.openai.com/api/docs/guides/live-prompting).
+
+El inicio Live tiene una proyección separada: CONTEXT_RULE, memoria estructurada, señal de cobertura
+incompleta, preguntas recientes y referentes verificados ordenados. Omite la prosa de respuestas
+anteriores del asistente. Conserva el presupuesto de 6000 bytes de contenido y elimina turnos
+completos antiguos para ajustarlo. La memoria y el texto del usuario siguen siendo contexto
+histórico no confiable, no evidencia actual. `ConversationContext.messages()` no cambia:
+Agent Core conserva el historial reciente completo y aplica las lecturas frescas existentes.
+No se reescribe ni elimina historial durable.
+
+Para inspeccionar o recomendar énfasis sobre ítems, sistemas, vidrio, acabado, dimensiones,
+cantidades, m² por ítem, precios, totales, diferencias técnicas o COP, la fuente primaria es
+`get_commercial_quotation` tras resolver el proyecto. Llamar «archivo» o «documento» a esa
+cotización no requiere descargar XLSX. Condiciones de pago escritas, cláusulas de garantía y
+texto fuera de la vista estructurada siguen usando metadata y análisis documental con sus
+límites actuales. La selección sigue en el modelo; no hay matching de frases ni nuevas tools.
+
+Pruebas offline comprueban la proyección, configuración exacta, cotización vs. texto documental
+y un flujo Live scripted con precio histórico obsoleto y precio COP actual. No prueban selección
+semántica del proveedor real. No se ejecuta smoke pagado. Money Contract, Scenario V1.1,
+credenciales, ownership, grounding repair, DB y presupuestos del Agent permanecen intactos.

@@ -132,10 +132,10 @@ class ConversationContext:
         # room for message framing without introducing a tokenizer dependency. UTF-8
         # byte size is a conservative content bound; evict only whole oldest turns.
         turns = self.turns
-        messages = self.messages()
+        messages = self._live_messages()
         while turns and sum(len(m.content.encode("utf-8")) for m in messages) > 6000:
             turns = turns[1:]
-            messages = ConversationContext(turns, self.memory, True).messages()
+            messages = ConversationContext(turns, self.memory, True)._live_messages()
         return [
             {
                 "type": "message",
@@ -149,6 +149,25 @@ class ConversationContext:
             }
             for message in messages
         ]
+
+    def _live_messages(self) -> tuple[ModelMessage, ...]:
+        if not self.has_history:
+            return ()
+        # Reuse the memory/coverage framing, never recent assistant business prose.
+        prefix = ConversationContext(memory=self.memory, incomplete=self.incomplete).messages()
+        messages = (
+            list(prefix) if prefix else [ModelMessage(role="developer", content=CONTEXT_RULE)]
+        )
+        for turn in self.turns:
+            messages.append(ModelMessage(role="user", content=turn.user_content))
+            messages.append(
+                ModelMessage(
+                    role="assistant",
+                    content="Previous verified referents (context only, ordered): "
+                    + turn.references,
+                )
+            )
+        return tuple(messages)
 
 
 MAX_CONTEXT_TURNS = 16
