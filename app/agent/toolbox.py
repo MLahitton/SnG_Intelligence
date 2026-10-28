@@ -31,9 +31,13 @@ TOOL_DEFINITIONS = (
         "Official Management-wide aggregate of currently stored confirmed Commercial quotations. "
         "Use for cross-project quoted value, highest-value items, highest unit prices and largest "
         "quotation totals. Not sales, revenue, margin or a complete historical version archive. "
+        "Also official mix analytics: systems, glass, aluminum finishes and system+glass "
+        "combinations, by item frequency, physical quantity or quoted value. Not market demand "
+        "or profit. Most quoted defaults to byQuantity; frequency uses byItemCount. "
         "Do not scan projects individually. Rankings are officially ordered, capped at 10 with "
         "coverage; preserve order. Highest-value item means TotalPrice, not UnitPrice. "
-        "Use direct with empty presentation_keys and verified project references.",
+        "Use direct with empty presentation_keys. Pure mix aggregates "
+        "use empty reference_keys; only project-specific rankings use verified project references.",
         NoArguments,
     ),
     ToolDefinition(
@@ -314,6 +318,23 @@ class ToolBox:
                 portfolio.highest_value_projects,
             )
             complete = not any(ranking.has_more for ranking in rankings)
+            mix = portfolio.mix
+            for dimension in (mix.systems, mix.glass, mix.aluminum_finishes):
+                for mix_ranking in (
+                    dimension.by_quantity,
+                    dimension.by_item_count,
+                    dimension.by_quoted_value,
+                ):
+                    complete = complete and not mix_ranking.has_more
+                    self.presentation.names.update(row.value for row in mix_ranking.items)
+            for combinations in (
+                mix.system_glass_combinations.by_quantity,
+                mix.system_glass_combinations.by_item_count,
+                mix.system_glass_combinations.by_quoted_value,
+            ):
+                complete = complete and not combinations.has_more
+                for combination in combinations.items:
+                    self.presentation.names.update((combination.system, combination.glass))
             for ranking in rankings:
                 for ranked in ranking.items:
                     refs.append(

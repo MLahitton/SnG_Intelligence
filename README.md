@@ -1672,7 +1672,7 @@ credenciales, ownership, grounding repair, DB y presupuestos del Agent permanece
 `get_quotation_portfolio()` consulta una sola vez `GET /api/management/quotation-portfolio`, con
 Management validado. Backend agrega las cotizaciones comerciales confirmadas actualmente
 almacenadas; no representa ventas, ingresos, facturación, márgenes ni un archivo completo de
-versiones históricas. No incluye series temporales ni mezcla por sistema/vidrio.
+versiones históricas. No incluye series temporales; el mix por sistema/vidrio/acabado se amplía en V2.
 
 El contrato cerrado exige COP y Price decimal numeric(20,2), conteos no negativos y rankings
 máximo 10 con total/returned/hasMore consistentes. quotationCount cuenta cotizaciones;
@@ -1693,3 +1693,33 @@ SpawnThinking, required, proyección de inicio ni credenciales. Money rendering 
 Desplegar junto con el endpoint Backend correspondiente. No cambia Frontend ni hay migración.
 Pruebas offline de contratos, cobertura, autorización, lectura única, referencias y seguimiento
 Live son scripted; no equivalen a smoke pagado o prueba semántica del modelo real.
+
+
+## Quotation Mix Analytics V2
+
+La misma `get_quotation_portfolio` ahora devuelve `mix.systems`, `mix.glass`,
+`mix.aluminumFinishes` y `mix.systemGlassCombinations`. Cada dimensión contiene totalItems,
+specifiedItems, unspecifiedItems y rankings byQuantity/byItemCount/byQuotedValue, top 10.
+El total de cada ranking es número de categorías distintas especificadas, no renglones.
+«Más cotizado» significa por defecto mayor totalQuantity; frecuencia es itemCount y concentración
+de valor es totalQuotedValue. En mix, el importe suma TotalPrice de renglones; el total global de
+V1 suma ProjectTotal. Nunca se intercambian, multiplican ni recalculan en Intelligence.
+
+El backend conserva categorías exactas y case; su dominio ya aplica Trim al guardar. Vacíos no
+crean una categoría ficticia. specifiedItems + unspecifiedItems = totalItems; una combinación
+requiere sistema y vidrio especificados. Las limitaciones de calidad se comunican con esos conteos.
+Los contratos estrictos rechazan cobertura inconsistente, categorías vacías, campos adicionales,
+rankings >10 e importes incompatibles con Price. Importes COP se proyectan como Decimal strings.
+
+Las consultas globales usan una sola tool; individuales mantienen get_commercial_quotation.
+Memoria no sustituye lecturas nuevas. Se preservan orden y totales oficiales sin sumar categorías,
+reagrupar variantes ni calcular porcentajes. Si una categoría específica no está en el top,
+no se inventa un cero; se explica cobertura o se pide precisión entre variantes.
+Respuestas puramente agregadas usan direct, presentation_keys=[] y reference_keys=[].
+
+Mix de cotizaciones actuales no es ventas, demanda, preferencias, inventario, rentabilidad ni
+histórico completo. No admite filtros temporales, por ciudad o cliente. Las recomendaciones de
+especialización tratan el mix como señal de actividad cotizada, sin deducir márgenes o demanda.
+Live, credenciales, persistencia, límites del Agent y Frontend no cambian. Desplegar Backend e
+Intelligence juntos: mix es obligatorio en el contrato. Tests offline verifican protocolos y
+límites, no la selección semántica de un proveedor real.

@@ -23,6 +23,26 @@ PATH = "/api/management/quotation-portfolio"
 SECOND = str(UUID(int=919))
 
 
+def empty_mix(total):
+    def dimension():
+        def ranking():
+            return dict(total=0, returned=0, hasMore=False, items=[])
+
+        return dict(
+            totalItems=total,
+            specifiedItems=0,
+            unspecifiedItems=total,
+            byQuantity=ranking(),
+            byItemCount=ranking(),
+            byQuotedValue=ranking(),
+        )
+
+    return {
+        key: dimension()
+        for key in ("systems", "glass", "aluminumFinishes", "systemGlassCombinations")
+    }
+
+
 @pytest.fixture
 def portfolio(payloads):
     item = dict(
@@ -72,6 +92,7 @@ def portfolio(payloads):
         highestUnitPriceItems=ranking([other, item]),
         highestValueProjects=ranking([project, other_project]),
     )
+    result["mix"] = empty_mix(result["itemCount"])
     payloads[PATH] = result
     return result
 
@@ -135,7 +156,9 @@ def test_strict_portfolio_contract_rejects_incompatible_data(portfolio, mutation
 
 @pytest.mark.anyio
 async def test_empty_portfolio_is_successful_read(portfolio, mock_backend):
-    portfolio.update(quotationCount=0, itemCount=0, totalQuantity=0, totalQuotedValue="0.00")
+    portfolio.update(
+        quotationCount=0, itemCount=0, totalQuantity=0, totalQuotedValue="0.00", mix=empty_mix(0)
+    )
     for name in ("highestValueItems", "highestUnitPriceItems", "highestValueProjects"):
         portfolio[name] = dict(total=0, returned=0, hasMore=False, items=[])
     result, metrics = await run_agent(
@@ -149,6 +172,7 @@ async def test_empty_portfolio_is_successful_read(portfolio, mock_backend):
 async def test_partial_ranking_does_not_claim_full_coverage(portfolio, mock_backend):
     # Totals belong to Backend; Intelligence must not sum this top slice.
     portfolio["itemCount"] = 37
+    portfolio["mix"] = empty_mix(37)
     for name in ("highestValueItems", "highestUnitPriceItems"):
         base = portfolio[name]["items"][0]
         portfolio[name] = dict(

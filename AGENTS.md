@@ -1245,9 +1245,24 @@ small adapters; model/voice configuration is server-owned and never supplied by 
 - Backend owns counts, quantity, exact ProjectTotal sum, stable rankings and coverage. Preserve
   returned order and Decimal values; no local maxima, sorting, multiplication or aggregate sums.
 - Current confirmed Commercial quotations are not sales/revenue/margin or full historical versions.
-  No time series or product mix in V1. High quoted value does not establish operational risk.
+  No time series; V2 extends current product mix below. High quoted value does not establish operational risk.
 - Strict closed COP/Price contracts, nonnegative counts and bounded coverage. Global factual and
   recommendation turns re-read; project-specific questions retain the individual quotation route.
 - Build only deduplicated ProjectReference from current ranks. Use direct/empty presentation keys;
   never invent missing workflow state for ProjectItem. No public responseType or Frontend change.
 - Keep Live and memory lifecycle, Money rendering, Decision Support guards and Agent budgets intact.
+
+
+## Quotation Mix Analytics V2
+
+- Same portfolio endpoint/tool, mandatory mix: systems/glass/aluminumFinishes/systemGlassCombinations.
+  Backend owns GROUP BY/SUM/count and all three ordered top 10 rankings; no reaggregation or sorting
+  in Intelligence. No additional tools, routes, responseTypes or Frontend changes.
+- quantity != frequency != quoted value. Most quoted defaults to totalQuantity; frequency uses
+  itemCount; value sums official item TotalPrice, not ProjectTotal or UnitPrice × Quantity.
+- Exact categories/case, no fuzzy equivalences. Empty/unspecified coverage is separate; ranking
+  total counts categories, not items. Missing from top does not mean zero. No automatic percentages.
+- quotation mix != demand/sales/profitability. No temporal/city/client filters or complete history.
+  Decision Support may use it as an explicit signal, never invented margin or customer preference.
+- Fresh reads required; pure aggregate answers use direct, empty presentation keys and references.
+  Preserve Money validation, Live Evidence Gate, conversation lifecycle and all Agent budgets.
