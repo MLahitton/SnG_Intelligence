@@ -4,6 +4,7 @@ from uuid import UUID
 import httpx
 from pydantic import SecretStr, TypeAdapter, ValidationError
 
+from app.contracts.accounting import AccountingState
 from app.contracts.auth import CurrentUser
 from app.contracts.client_decision import ClientQuotationDecision
 from app.contracts.documents import Document, ProjectDocuments
@@ -162,6 +163,17 @@ class SnGControlClient:
             TypeAdapter(list[ProjectNotification]),
             "notifications",
         )
+
+    async def get_initial_deposit(self, project_id: UUID | str) -> AccountingState:
+        identifier = validate_project_id(project_id)
+        result = await self._get(
+            f"/api/projects/{identifier}/initial-deposit",
+            TypeAdapter(AccountingState),
+            "initial_deposit",
+        )
+        if result.project_id != identifier:
+            raise BackendResponseError()
+        return result
 
     async def get_quotation_rounds(self, project_id: UUID | str) -> QuotationRounds:
         identifier = validate_project_id(project_id)

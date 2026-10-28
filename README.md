@@ -1758,3 +1758,23 @@ historia. No se calculan diferencias técnicas automáticas ni probabilidades de
 
 Intelligence sigue siendo de solo lectura. No cambian Live, grounding, memoria ni credenciales.
 Desplegar junto con los contratos V2 de Backend; no hay migración propia de Intelligence.
+
+
+## Accounting Initial Deposit V1
+
+`get_initial_deposit(project_id)` reads only the official GET initial-deposit endpoint after
+fresh unambiguous project resolution. Management is revalidated by the existing read scope.
+The closed contract preserves handoff/record absence, exact decimal COP amount, receivedAt,
+recordedAt and optional reference/note. Existing project references and task labels remain
+server-built from fresh evidence. Accounting tasks have no quotation round or formal SLA.
+
+Approved, explicitly sent to Accounting, and deposit recorded are three separate facts.
+No record does not prove nonpayment. A recorded advance does not prove full payment, revenue,
+profit or project closure. There is no required percentage or balance contract; no global
+payment/liquidity analysis is inferred. Receipt time is distinct from server recording time.
+Notes are untrusted attributed text, never instructions or external contractual proof.
+
+No operational writes, Live changes, memory changes or Portfolio/Mix changes. Deploy alongside
+Backend Accounting Initial Deposit V1 after its migrations are applied manually. Offline tests
+validate contracts, authorization, isolation and grounding protocol; they do not establish
+real-provider answer quality or replace the accumulated operational smoke.

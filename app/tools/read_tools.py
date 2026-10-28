@@ -6,6 +6,7 @@ from uuid import UUID
 
 from app.auth.management_guard import require_management
 from app.clients.sng_control import SnGControlClient, validate_project_id
+from app.contracts.accounting import AccountingState
 from app.contracts.analysis import ComparedProject, ManagementSnapshot
 from app.contracts.client_decision import ClientQuotationDecision
 from app.contracts.documents import Document, ProjectDocuments
@@ -73,6 +74,11 @@ class ReadTools:
     async def list_management_tasks(self) -> list[ManagementTask]:
         await self._authorize()
         return await self._client.list_management_tasks()
+
+    async def get_initial_deposit(self, project_id: UUID | str) -> AccountingState:
+        identifier = validate_project_id(project_id)
+        await self._authorize()
+        return await self._client.get_initial_deposit(identifier)
 
     async def get_quotation_rounds(self, project_id: UUID | str) -> QuotationRounds:
         identifier = validate_project_id(project_id)

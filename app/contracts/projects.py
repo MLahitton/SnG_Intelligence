@@ -46,6 +46,13 @@ class ProjectTask(BackendContract):
             and self.quotation_round is None
         ):
             raise ValueError("Quotation task requires a round")
+        if self.type == "RegisterInitialDeposit" and (
+            self.quotation_round is not None
+            or self.area != "Accounting"
+            or self.deadline_at is not None
+            or self.was_overdue is not None
+        ):
+            raise ValueError("Accounting task has no quotation round or SLA")
         return self
 
 

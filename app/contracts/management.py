@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.contracts.base import BackendContract
 
@@ -58,7 +58,7 @@ class ManagementOverview(BackendContract):
 
 
 class ManagementTask(BackendContract):
-    quotation_round: int = Field(gt=0)
+    quotation_round: int | None = Field(gt=0)
     task_id: UUID
     project_id: UUID
     project_name: str
@@ -76,3 +76,19 @@ class ManagementTask(BackendContract):
     deadline_at: datetime | None
     was_overdue: bool | None
     lead_time_status: str
+
+    @model_validator(mode="after")
+    def valid_round(self) -> "ManagementTask":
+        if (
+            self.type in {"PrepareQuotation", "ReviewQuotation", "PresentQuotationToClient"}
+            and self.quotation_round is None
+        ):
+            raise ValueError("Quotation task requires round")
+        if self.type == "RegisterInitialDeposit" and (
+            self.quotation_round is not None
+            or self.area != "Accounting"
+            or self.deadline_at is not None
+            or self.was_overdue is not None
+        ):
+            raise ValueError("Accounting task has no quotation round or SLA")
+        return self

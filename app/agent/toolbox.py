@@ -27,6 +27,14 @@ from app.tools import ReadTools
 
 TOOL_DEFINITIONS = (
     ToolDefinition(
+        "get_initial_deposit",
+        "Official Accounting handoff and initial-deposit record for an approved Commercial "
+        "quotation. Resolve the project freshly first. Distinguishes client approval, sent to "
+        "Accounting, and recorded deposit. Amount is a reported payment record, not sales, "
+        "revenue, profit or proof of full payment. No required deposit percentage is defined.",
+        ProjectArguments,
+    ),
+    ToolDefinition(
         "get_quotation_rounds",
         "Official quotation-round history: Budget preparation, Commercial review/confirmation, "
         "presentation, client decisions and formal requotation requests. Resolve project freshly "
@@ -229,6 +237,7 @@ class ToolBox:
                     "get_commercial_quotation",
                     "get_client_quotation_decision",
                     "get_quotation_rounds",
+                    "get_initial_deposit",
                 }
                 and isinstance(arguments, ProjectArguments)
                 and (
@@ -434,6 +443,9 @@ class ToolBox:
                     TaskReference(project_id=t.project_id, task_id=t.id, label=t.type)
                     for t in details.tasks
                 )
+            elif call.name == "get_initial_deposit":
+                deposit = await self._tools.get_initial_deposit(arguments.project_id)
+                data = deposit.model_dump(mode="json", by_alias=True)
             elif call.name == "get_quotation_rounds":
                 history = await self._tools.get_quotation_rounds(arguments.project_id)
                 data = history.model_dump(mode="json", by_alias=True)

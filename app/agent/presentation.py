@@ -25,7 +25,11 @@ from app.contracts.presentation import (
 )
 from app.contracts.projects import ProjectCandidate, ProjectDetails, ProjectTask
 
-AREA_LABELS_ES = {"Budgets": "Presupuestos", "Commercial": "Comercial"}
+AREA_LABELS_ES = {
+    "Budgets": "Presupuestos",
+    "Commercial": "Comercial",
+    "Accounting": "Contabilidad",
+}
 
 
 class PresentationEvidence:
