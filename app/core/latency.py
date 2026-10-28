@@ -110,6 +110,7 @@ BackendOperation = Literal[
     "notifications",
     "budget_quotation",
     "commercial_quotation",
+    "quotation_portfolio",
 ]
 
 

@@ -883,7 +883,7 @@ When a requested implementation conflicts with one of these rules, stop that spe
   the model configurable; provider availability must not prevent health startup.
 - `GET /api/projects` is now allowed solely for the closed read-only project search.
   Do not add arbitrary HTTP tools or broaden the transport to other methods.
-- Only the eleven explicitly registered tools (including Management 4A composites, 4B analysis and confirmed quotation reads) are visible to the model. Validate all
+- Only the twelve explicitly registered tools (including Management 4A composites, 4B analysis and confirmed quotation reads) are visible to the model. Validate all
   tool arguments and the whole requested batch before execution; enforce bounded
   rounds, calls, execution time and payload size. Never truncate silently.
 - Chats without conversationId are independent. Conversation 3A explicitly permits
@@ -1176,7 +1176,7 @@ small adapters; model/voice configuration is server-owned and never supplied by 
   Do not infer money from plain decimals, alter protected names or generate separate spoken facts.
 - English retains COP 5,513,429.14 without specialized pronunciation. No new speech dependency.
 - Highest item value means totalPrice unless explicitly asking for unitPrice; quotation value
-  means projectTotal. No portfolio-wide N+1 scans. Portfolio analytics remains unimplemented.
+  means projectTotal. No portfolio-wide N+1 scans. Use the official get_quotation_portfolio aggregate for cross-project current quotations.
 - Long Context, Intelligence DB/migrations, Live lifecycle and fresh-evidence grounding unchanged.
 
 
@@ -1236,3 +1236,18 @@ small adapters; model/voice configuration is server-owned and never supplied by 
 - No keyword router, extra tools, public contracts, DB migrations or credential/lifecycle changes.
   Preserve Money, Decision Support/Scenario guards and tool budgets. Offline scripted tests are
   protocol regressions; real model delegation/routing requires a separate manual smoke.
+
+
+## Quotation Portfolio Analytics V1
+
+- Cross-project quotation analytics use the official Management portfolio capability. Never
+  emulate them by iterating projects. The new sole route is GET /api/management/quotation-portfolio.
+- Backend owns counts, quantity, exact ProjectTotal sum, stable rankings and coverage. Preserve
+  returned order and Decimal values; no local maxima, sorting, multiplication or aggregate sums.
+- Current confirmed Commercial quotations are not sales/revenue/margin or full historical versions.
+  No time series or product mix in V1. High quoted value does not establish operational risk.
+- Strict closed COP/Price contracts, nonnegative counts and bounded coverage. Global factual and
+  recommendation turns re-read; project-specific questions retain the individual quotation route.
+- Build only deduplicated ProjectReference from current ranks. Use direct/empty presentation keys;
+  never invent missing workflow state for ProjectItem. No public responseType or Frontend change.
+- Keep Live and memory lifecycle, Money rendering, Decision Support guards and Agent budgets intact.

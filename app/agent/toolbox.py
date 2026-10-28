@@ -27,6 +27,16 @@ from app.tools import ReadTools
 
 TOOL_DEFINITIONS = (
     ToolDefinition(
+        "get_quotation_portfolio",
+        "Official Management-wide aggregate of currently stored confirmed Commercial quotations. "
+        "Use for cross-project quoted value, highest-value items, highest unit prices and largest "
+        "quotation totals. Not sales, revenue, margin or a complete historical version archive. "
+        "Do not scan projects individually. Rankings are officially ordered, capped at 10 with "
+        "coverage; preserve order. Highest-value item means TotalPrice, not UnitPrice. "
+        "Use direct with empty presentation_keys and verified project references.",
+        NoArguments,
+    ),
+    ToolDefinition(
         "get_budget_quotation",
         "Confirmed Budget quotation: items, physical quantities, technical values and document "
         "metadata, never prices. Resolve an unambiguous project in this run first. Use for "
@@ -295,6 +305,25 @@ class ToolBox:
                     TaskReference(project_id=task.project_id, task_id=task.id, label=task.type)
                     for task in compared.details.tasks
                 )
+        elif call.name == "get_quotation_portfolio":
+            portfolio = await self._tools.get_quotation_portfolio()
+            data = portfolio.model_dump(mode="json", by_alias=True)
+            rankings = (
+                portfolio.highest_value_items,
+                portfolio.highest_unit_price_items,
+                portfolio.highest_value_projects,
+            )
+            complete = not any(ranking.has_more for ranking in rankings)
+            for ranking in rankings:
+                for ranked in ranking.items:
+                    refs.append(
+                        ProjectReference(
+                            project_id=ranked.project_id,
+                            label=ranked.project_name,
+                            sg_code=ranked.sg_code,
+                        )
+                    )
+                    self.presentation.names.update((ranked.project_name, ranked.client_name))
         elif call.name == "get_management_overview":
             overview = await self._tools.get_management_overview()
             self.presentation.overview(overview)

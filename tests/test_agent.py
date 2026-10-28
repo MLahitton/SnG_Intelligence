@@ -319,6 +319,7 @@ async def test_empty_model_turn_is_invalid(mock_backend):
 
 def test_registered_tools_are_explicit_and_schemas_are_closed():
     assert {t.name for t in TOOL_DEFINITIONS} == {
+        "get_quotation_portfolio",
         "get_budget_quotation",
         "get_commercial_quotation",
         "analyze_project_documents",

@@ -303,7 +303,7 @@ su contenido cifrado cuando está presente. No se usa Conversations ni
 una ventana reciente del historial durable propio, sin replay de tools/razonamiento anteriores.
 
 El modelo recibe la pregunta, contexto conversacional acotado si existe, los schemas
-y resultados proyectados de las once
+y resultados proyectados de las doce
 tools registradas. Nunca recibe ReadTools, el cliente backend, requests, headers,
 variables de entorno o contexto de autenticación. Se omiten identidades Google,
 emails de autores/asignados y flags de modificación de los resultados. Un guard
@@ -711,7 +711,7 @@ Browser <-- WebRTC audio + captions/UI --> GPT-Live
 
 El servidor es el único ejecutor de `consult_sng_intelligence`. Responses delegation
 recibe contexto de Live y produce preguntas autocontenidas para el Agent con evidencia nueva y contexto opcional.
-Las once tools read-only, grounding, referencias y Presentation no se duplican ni
+Las doce tools read-only, grounding, referencias y Presentation no se duplican ni
 se exponen directamente a Live. El browser no interpreta llamadas, no consulta
 `/live/delegate` y no envía tool outputs ni `response.create`. Ese endpoint fue eliminado.
 
@@ -1001,7 +1001,7 @@ autenticación, credenciales, `store=false`, TLS ni STT/TTS. No hay estado empre
 
 ### Snapshot gerencial
 
-`get_management_snapshot()` añade una tool cerrada al catálogo (ocho tools en 4A; nueve con 4B; once con el dossier confirmado;
+`get_management_snapshot()` añade una tool cerrada al catálogo (ocho tools en 4A; nueve con 4B; once con el dossier confirmado; doce con portfolio;
 se conservan las seis anteriores). Autoriza primero y obtiene overview y management tasks
 concurrentemente. Cancela y espera todas las lecturas pendientes ante fallo/cancelación.
 El contrato contiene:
@@ -1560,8 +1560,8 @@ delegación, grounding ni Long Context V1; no hay migración de la base de Intel
 
 «Ítem más caro» usa totalPrice dentro de una cotización; precio unitario explícito usa unitPrice.
 El valor de la cotización usa exclusivamente projectTotal, nunca una suma local. Queda fuera
-la consulta global sobre todas las cotizaciones: quotation portfolio analytics es una capacidad
-futura, no se simula recorriendo proyectos. Las pruebas usan datos sintéticos equivalentes al
+el histórico completo de versiones. Las consultas globales actuales usan get_quotation_portfolio,
+nunca un recorrido individual de proyectos. Las pruebas usan datos sintéticos equivalentes al
 hallazgo, incluidas cifras grandes, límites, centavos, contratos inválidos y referencias frescas.
 
 Desplegar junto con Backend Money Contract V1 y su migración monetaria. Los parsers cerrados
@@ -1665,3 +1665,31 @@ Pruebas offline comprueban la proyección, configuración exacta, cotización vs
 y un flujo Live scripted con precio histórico obsoleto y precio COP actual. No prueban selección
 semántica del proveedor real. No se ejecuta smoke pagado. Money Contract, Scenario V1.1,
 credenciales, ownership, grounding repair, DB y presupuestos del Agent permanecen intactos.
+
+
+## Quotation Portfolio Analytics V1
+
+`get_quotation_portfolio()` consulta una sola vez `GET /api/management/quotation-portfolio`, con
+Management validado. Backend agrega las cotizaciones comerciales confirmadas actualmente
+almacenadas; no representa ventas, ingresos, facturación, márgenes ni un archivo completo de
+versiones históricas. No incluye series temporales ni mezcla por sistema/vidrio.
+
+El contrato cerrado exige COP y Price decimal numeric(20,2), conteos no negativos y rankings
+máximo 10 con total/returned/hasMore consistentes. quotationCount cuenta cotizaciones;
+itemCount renglones; totalQuantity unidades; totalQuotedValue suma los ProjectTotal oficiales,
+no los ítems del top. Intelligence conserva importes como strings Decimal y no suma ni ordena.
+El primer highestValueItems corresponde al mayor TotalPrice, highestUnitPriceItems al mayor
+UnitPrice y highestValueProjects al mayor ProjectTotal. El top permite conocer el máximo global,
+pero no afirmar que se muestran todos si hasMore=true. Vacío es un resultado válido sin ganador.
+
+Consultas globales y seguimientos «¿y de todos los proyectos?» usan esta tool; preguntas sobre
+un proyecto concreto siguen usando get_commercial_quotation. No se simula portfolio con N+1.
+Referencias de proyecto se construyen y deduplican desde rankings frescos; no hay referencias
+de ítem ni nuevos responseTypes. V1 utiliza direct y presentation_keys=[] incluso para listados.
+Recomendaciones por valor declaran ese criterio; mayor valor no implica mayor riesgo ni margen.
+Long Context no sustituye una lectura nueva. Live usa el mismo Agent sin cambios de protocolo,
+SpawnThinking, required, proyección de inicio ni credenciales. Money rendering se reutiliza.
+
+Desplegar junto con el endpoint Backend correspondiente. No cambia Frontend ni hay migración.
+Pruebas offline de contratos, cobertura, autorización, lectura única, referencias y seguimiento
+Live son scripted; no equivalen a smoke pagado o prueba semántica del modelo real.

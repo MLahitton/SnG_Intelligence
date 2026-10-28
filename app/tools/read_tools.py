@@ -10,6 +10,7 @@ from app.contracts.analysis import ComparedProject, ManagementSnapshot
 from app.contracts.documents import Document, ProjectDocuments
 from app.contracts.management import AttentionItem, ManagementOverview, ManagementTask
 from app.contracts.notifications import ProjectNotification
+from app.contracts.portfolio import ManagementQuotationPortfolio
 from app.contracts.presentation import Coverage
 from app.contracts.projects import ProjectCandidate, ProjectDetails
 from app.contracts.quotations import ConfirmedBudgetQuotation, ConfirmedCommercialQuotation
@@ -58,6 +59,10 @@ class ReadTools:
 
     def __reduce__(self) -> Never:
         raise TypeError("Read tools cannot be serialized")
+
+    async def get_quotation_portfolio(self) -> ManagementQuotationPortfolio:
+        await self._authorize()
+        return await self._client.get_management_quotation_portfolio()
 
     async def get_management_overview(self) -> ManagementOverview:
         await self._authorize()

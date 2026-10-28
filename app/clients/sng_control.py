@@ -8,6 +8,7 @@ from app.contracts.auth import CurrentUser
 from app.contracts.documents import Document, ProjectDocuments
 from app.contracts.management import ManagementOverview, ManagementTask
 from app.contracts.notifications import ProjectNotification
+from app.contracts.portfolio import ManagementQuotationPortfolio
 from app.contracts.projects import Project, ProjectTask
 from app.contracts.quotations import ConfirmedBudgetQuotation, ConfirmedCommercialQuotation
 from app.core.errors import (
@@ -113,6 +114,13 @@ class SnGControlClient:
 
     async def get_current_user(self) -> CurrentUser:
         return await self._get("/api/auth/me", TypeAdapter(CurrentUser), "auth_me")
+
+    async def get_management_quotation_portfolio(self) -> ManagementQuotationPortfolio:
+        return await self._get(
+            "/api/management/quotation-portfolio",
+            TypeAdapter(ManagementQuotationPortfolio),
+            "quotation_portfolio",
+        )
 
     async def get_management_overview(self) -> ManagementOverview:
         return await self._get(

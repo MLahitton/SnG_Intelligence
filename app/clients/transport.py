@@ -10,7 +10,7 @@ from app.core.errors import OutboundPolicyError
 
 _PROJECT = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _PATH = re.compile(
-    rf"/api/(?:auth/me|management/(?:overview|tasks)|projects(?:/{_PROJECT}"
+    rf"/api/(?:auth/me|management/(?:overview|tasks|quotation-portfolio)|projects(?:/{_PROJECT}"
     rf"(?:/tasks|/documents(?:/{_PROJECT}/file)?|/notifications"
     rf"|/budget-quotation/view|/commercial-quotation/view)?)?)"
 )
