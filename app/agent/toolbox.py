@@ -45,7 +45,10 @@ TOOL_DEFINITIONS = (
     ),
     ToolDefinition(
         "analyze_project_documents",
-        "Read actual document contents, never for metadata-only questions. "
+        "Read actual document contents only when explicitly requested or when the requested "
+        "conclusion inherently depends on document content; never for metadata-only questions. "
+        "Not a general uncertainty fallback: do not use automatically for hypothetical "
+        "operational scenarios, delays or expectations. Use current operational reads first. "
         "Resolve projects first. "
         "Selections: current (default), initial_handoff, all_versions "
         "with empty IDs/null filename; "
@@ -83,7 +86,12 @@ TOOL_DEFINITIONS = (
         "get_project_details", "Official project and tasks for a UUID.", ProjectArguments
     ),
     ToolDefinition(
-        "get_project_documents", "Document metadata only; never download bytes.", ProjectArguments
+        "get_project_documents",
+        "Document metadata only; never download bytes. Use for requested document listings, "
+        "metadata or selection needed for a document-content question. Not a general "
+        "uncertainty fallback: do not query by default for scenario, recommendation or analysis "
+        "when current project/tasks suffice. Delay, time or should do not imply a document need.",
+        ProjectArguments,
     ),
     ToolDefinition(
         "get_project_activity",

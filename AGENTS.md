@@ -1202,3 +1202,17 @@ small adapters; model/voice configuration is server-owned and never supplied by 
   and Presentation use only current evidence. Basic Voice/Live use the same Agent, deterministic
   spokenAnswer, unchanged credentials/lifecycle. No DB schema or persistence changes in this block.
 - Scripted offline tests validate protocol and evidence boundaries, not real-provider semantics.
+
+## Decision Support V1.1 — scenario boundary
+
+- Scenario questions must not trigger document analysis merely because they mention delay,
+  time, obligation or "should". Document tools require a document-content need.
+- Scenario reasoning is operational-first: fresh minimum sufficient project/tasks/workflow
+  evidence, conditional assumptions and qualitative implications, explicit quantification limits.
+  No formal dependency does not mean no analysis; never invent downstream dates or causality.
+- Both document metadata and content tools are not generic uncertainty fallbacks. Explicit
+  document questions retain the existing 4B selection, authorization, limits and grounding.
+- Keep model-led tool selection: no keyword/regex router, new tool or public response category.
+  Preserve the scenario fresh-read guard, run-local references, memory and Live lifecycle.
+- Scripted scenario/Live tests verify contracts and orchestration, not real-model tool choice
+  or semantic entailment. Real smoke remains a separate manual validation.

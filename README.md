@@ -1603,3 +1603,29 @@ Sigue siendo read-only: no ejecuta recomendaciones, no genera alertas autónomas
 No hay cambios de DB, migraciones, HTTP público, tools ni Frontend. Las pruebas son offline y
 scripted: cubren contratos, rechazo sin lecturas, comparación, revisión con memoria y tres turnos
 Live con nuevas lecturas; no certifican calidad de razonamiento de OpenAI real ni un smoke pagado.
+
+### Decision Support V1.1 — escenarios operacionales
+
+Scenario reasoning is operational-first. Documents are not a generic uncertainty fallback.
+Preguntar «¿qué pasa si el cliente se demora más días de lo que debería?» requiere primero
+resolver el proyecto y leer su estado/tareas actuales. «Debería», plazo, demora o tiempo no
+implican automáticamente un SLA contractual ni una búsqueda documental. Se consulta únicamente
+la evidencia suficiente; cotización, actividad y snapshot no se agregan por defecto.
+
+El Agent separa hechos actuales, supuesto, posibles efectos y límites de cuantificación. La falta
+de dependencias formales no impide analizar cualitativamente una posible prolongación de la
+etapa comercial si los datos actuales sostienen esa premisa. No permite afirmar Producción +3
+o Logística +3, inventar etapas ni recalcular fechas. Los supuestos de memoria siguen siendo
+hipótesis y requieren fresh reads; las referencias siguen siendo del run actual.
+
+«¿Qué plazo establece el contrato?» o «¿Hay penalización escrita?» sí justifican herramientas
+documentales. Tanto get_project_documents como analyze_project_documents exigen una necesidad
+documental; no resuelven toda incertidumbre. Un documento grande/no disponible no bloquea un
+escenario que no necesita consultarlo. Las preguntas que sí dependen del documento conservan
+los límites y errores del flujo 4B, sin inventar su contenido.
+
+El hardening está en prompt y tool descriptions, sin router por palabras clave. Se mantienen
+answerMode=scenario interno, guard de lectura actual, responseTypes y lifecycle Live. Tests
+scripted cubren escenarios sin documentos, consulta contractual con documentos, memoria obsoleta,
+límites cualitativos y tres turnos Live con nuevas lecturas. No prueban la selección semántica
+del modelo real: el caso de smoke debe repetirse manualmente en texto y Live.
