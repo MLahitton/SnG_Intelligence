@@ -1178,3 +1178,27 @@ small adapters; model/voice configuration is server-owned and never supplied by 
 - Highest item value means totalPrice unless explicitly asking for unitPrice; quotation value
   means projectTotal. No portfolio-wide N+1 scans. Portfolio analytics remains unimplemented.
 - Long Context, Intelligence DB/migrations, Live lifecycle and fresh-evidence grounding unchanged.
+
+
+## Decision Support V1
+
+- Required internal answerMode is factual/analysis/recommendation/scenario/brainstorm/conversation.
+  Keep it out of public ChatResponse, persisted turns/memory and Live payloads; no new responseType.
+- Server requires successful run-local reads for analysis/recommendation/scenario unconditionally.
+  Factual also requires reads except clarification/unavailable. Generic brainstorm/conversation
+  may skip tools only with direct/clarification/unavailable and no evidence selectors, even with
+  history. Never classify current business claims or unverified historical recall as generic
+  to evade evidence. Mode validation is a structural floor, not semantic entailment verification.
+- Recommendations never become facts; scenario assumptions never become current state. Explain
+  observable grounds, distinguish interpretation and conditional consequences, never invent
+  causal dependencies, scores, capacity, profitability or official deadline changes.
+- Memory supplies explicit goals/decisions/proposals/assumptions only. Recent revocation wins;
+  re-read before maintaining or revising recommendations. Historical recall without provenance
+  remains clarification/unavailable; memory never substitutes fresh evidence.
+- Same closed tools, read-only dispatcher and budgets. Prefer snapshot for global concerns,
+  exhaustive task tool for exhaustive claims and compare_projects for 2–4 fresh resolved projects.
+  No quotation portfolio N+1, new routes, autonomous writes or unsolicited background analysis.
+- Preserve metadata-only grounding repair: answer AND answerMode remain identical. References
+  and Presentation use only current evidence. Basic Voice/Live use the same Agent, deterministic
+  spokenAnswer, unchanged credentials/lifecycle. No DB schema or persistence changes in this block.
+- Scripted offline tests validate protocol and evidence boundaries, not real-provider semantics.

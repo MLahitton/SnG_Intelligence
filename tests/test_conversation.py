@@ -158,7 +158,7 @@ def test_chat_context_refresh_and_failure_no_commit(settings, mock_backend, payl
         final("Ahora tenemos 20 proyectos."),
         final("Tenemos 19 proyectos."),  # Stale-only response must fail closed.
         ProviderTimeout(),
-        final("Respuesta independiente."),
+        final("Respuesta independiente.", mode="conversation"),
     )
     app = chat_app(settings, transport, model)
     with TestClient(app) as api:

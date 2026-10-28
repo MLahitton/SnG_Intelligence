@@ -68,8 +68,14 @@ class ChatResponse(StrictModel):
         return self
 
 
+AnswerMode = Literal[
+    "factual", "analysis", "recommendation", "scenario", "brainstorm", "conversation"
+]
+
+
 class ModelAnswer(StrictModel):
     model_config = ConfigDict(populate_by_name=True)
+    answer_mode: AnswerMode = Field(alias="answerMode")
     response_type: ResponseType = Field(alias="responseType")
     answer: str = Field(min_length=1, max_length=12000)
     spoken_answer: str = Field(min_length=1, max_length=12000, alias="spokenAnswer")

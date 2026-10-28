@@ -41,10 +41,17 @@ class FakeModel:
 
 
 def final(
-    answer="Respuesta basada en datos.", keys=(), *, kind="direct", presentation=(), spoken=None
+    answer="Respuesta basada en datos.",
+    keys=(),
+    *,
+    kind="direct",
+    presentation=(),
+    spoken=None,
+    mode="factual",
 ):
     return ModelTurn(
         answer=ModelAnswer(
+            answer_mode=mode,
             answer=answer,
             reference_keys=list(keys),
             response_type=kind,
@@ -74,7 +81,9 @@ async def run_agent(model, transport, message="Consulta de Gerencia"):
 
 async def test_direct_answer_and_no_operational_calls(mock_backend):
     transport, calls = mock_backend
-    model = FakeModel(final("No hay datos de facturación disponibles en estas APIs."))
+    model = FakeModel(
+        final("No hay datos de facturación disponibles en estas APIs.", kind="unavailable")
+    )
     result, metrics = await run_agent(model, transport, "¿Cuánto facturamos?")
     assert "No hay datos" in result.answer
     assert not result.references and not calls
@@ -127,7 +136,10 @@ async def test_multiple_calls_and_authoritative_references(mock_backend):
 async def test_references_cannot_be_invented_without_evidence(mock_backend, key):
     transport, _ = mock_backend
     with pytest.raises(UngroundedReference):
-        await run_agent(FakeModel(final(keys=[key]), final(keys=[key])), transport)
+        await run_agent(
+            FakeModel(final(keys=[key], kind="unavailable"), final(keys=[key], kind="unavailable")),
+            transport,
+        )
 
 
 async def test_reference_from_unretrieved_entity_rejected(mock_backend):

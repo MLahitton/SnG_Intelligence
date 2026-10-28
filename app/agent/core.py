@@ -116,15 +116,21 @@ class Agent:
         if turn.calls or not turn.answer.answer.strip():
             raise InvalidModelResponse()
         self._guard.check(turn.answer.model_dump_json())
-        # Historical prose can never substitute for a fresh read. Safe clarification
-        # and unavailable responses can still ask for information without inventing it.
-        if (
-            context
-            and context.has_history
-            and not has_reads
-            and turn.answer.response_type not in ("clarification", "unavailable")
-        ):
-            raise InvalidModelResponse()
+        # Apply the same evidence floor with or without history. Generic conversation
+        # has no evidence-backed presentation; history never seeds the evidence ledger.
+        if not has_reads:
+            mode = turn.answer.answer_mode
+            safe_fallback = turn.answer.response_type in ("clarification", "unavailable")
+            if mode in ("analysis", "recommendation", "scenario"):
+                raise InvalidModelResponse()
+            if mode == "factual" and not safe_fallback:
+                raise InvalidModelResponse()
+            if mode in ("brainstorm", "conversation") and (
+                turn.answer.response_type not in ("direct", "clarification", "unavailable")
+                or turn.answer.reference_keys
+                or turn.answer.presentation_keys
+            ):
+                raise InvalidModelResponse()
         # Spoken prose is not an independent factual channel. Reject divergence,
         # then render both surfaces from the same content and evidence.
         if turn.answer.spoken_answer != turn.answer.answer:
@@ -219,7 +225,10 @@ class Agent:
             if size + len(serialized.encode("utf-8")) > MAX_TRANSCRIPT_BYTES:
                 raise AgentLimitExceeded()
             # Repair metadata only: even a valid new fact must not enter through this path.
-            if repaired.answer.answer != initial.answer.answer:
+            if (
+                repaired.answer.answer != initial.answer.answer
+                or repaired.answer.answer_mode != initial.answer.answer_mode
+            ):
                 raise InvalidModelResponse()
             result = self._finalize(repaired, context, has_reads)
         except BaseException:

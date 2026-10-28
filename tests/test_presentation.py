@@ -147,6 +147,7 @@ async def test_presentation_context_round_trip_preserves_evidence(
                             {
                                 "answer": f"{project_name}: {prose}",
                                 "spokenAnswer": f"{project_name}: {prose}",
+                                "answerMode": "factual",
                                 "responseType": "direct",
                                 "presentation_keys": [],
                                 "reference_keys": [f"project:{PROJECT_ID}", f"task:{TASK_ID}"],

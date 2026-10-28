@@ -65,7 +65,7 @@ class FakeTextToSpeech:
 def voice_app(settings, transport, *, stt=None, tts=None, model=None):
     stt = stt or FakeSpeechToText()
     tts = tts or FakeTextToSpeech()
-    model = model or FakeModel(final())
+    model = model or FakeModel(final("Hola", mode="conversation"))
     app = create_app(settings, transport=transport)
     app.dependency_overrides[get_transcriber] = lambda: stt
     app.dependency_overrides[get_speaker] = lambda: tts
@@ -186,7 +186,8 @@ def test_invented_voice_reference_rejected(settings, mock_backend):
         settings,
         transport,
         model=FakeModel(
-            final(keys=[f"project:{PROJECT_ID}"]), final(keys=[f"project:{PROJECT_ID}"])
+            final(keys=[f"project:{PROJECT_ID}"], kind="unavailable"),
+            final(keys=[f"project:{PROJECT_ID}"], kind="unavailable"),
         ),
     )
     with TestClient(app) as api:
@@ -326,7 +327,9 @@ def test_voice_logs_only_metadata(settings, mock_backend, monkeypatch, caplog):
     monkeypatch.setenv("OPENAI_API_KEY", key)
     caplog.set_level("DEBUG")
     transport, _ = mock_backend
-    app, _, _, _ = voice_app(settings, transport, model=FakeModel(final("PRIVATE ANSWER")))
+    app, _, _, _ = voice_app(
+        settings, transport, model=FakeModel(final("PRIVATE ANSWER", mode="conversation"))
+    )
     with TestClient(app) as api:
         assert send(api, ENDPOINTS[1]).status_code == 200
         assert send(api, ENDPOINTS[2]).status_code == 200
@@ -428,7 +431,7 @@ def test_spanish_sdk_transcript_preserved_through_http_and_agent(
     transport, _ = mock_backend
     app = create_app(settings, transport=transport)
     answer = "No dispongo de esa información."
-    model = FakeModel(final(answer))
+    model = FakeModel(final(answer, kind="unavailable"))
     app.dependency_overrides[get_agent_model] = lambda: model
     with TestClient(app) as api:
         response = send(api, endpoint)

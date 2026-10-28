@@ -1567,3 +1567,39 @@ hallazgo, incluidas cifras grandes, límites, centavos, contratos inválidos y r
 Desplegar junto con Backend Money Contract V1 y su migración monetaria. Los parsers cerrados
 operacionales de Frontend también requieren el nuevo campo; se realizó su ajuste contractual
 mínimo para evitar 502 por campos adicionales. No se cambió su UI ni sus cálculos.
+
+
+## Decision Support V1
+
+El mismo Agent permite análisis, prioridades, recomendaciones, alternativas y escenarios cuando
+Gerencia los solicita. `answerMode` es un campo obligatorio y cerrado de la salida interna del
+modelo: `factual`, `analysis`, `recommendation`, `scenario`, `brainstorm` o `conversation`.
+No se expone en ChatResponse, Presentation, historial, memoria ni protocolo Live.
+
+El servidor exige al menos una lectura exitosa del run para analysis/recommendation/scenario,
+incluso con memoria antigua. Para factual aplica la misma regla salvo clarification/unavailable.
+Brainstorm genérico y conversación no operacional pueden responder sin tools, también después de
+otros turnos, únicamente con direct/clarification/unavailable y sin claves de evidencia.
+Ideas sobre la operación actual requieren lecturas; el prompt prohíbe eludir esa regla cambiando
+el modo. Esta validación es un mínimo estructural: no demuestra por sí sola que cada frase sea
+una consecuencia de la evidencia ni detecta toda clasificación semántica incorrecta del modelo.
+No hay router por palabras clave ni clasificador adicional.
+
+Las respuestas distinguen hechos oficiales, interpretación («Mi lectura es...»), recomendaciones
+(«Yo priorizaría...») y supuestos («Bajo ese supuesto...»). Snapshot sirve para atención global,
+respetando coverage; list_management_tasks para exhaustividad; compare_projects para 2–4 proyectos
+resueltos en el run. No se consultan documentos/cotizaciones sin necesidad ni se barre el portfolio.
+Los conteos no prueban productividad ni cuellos de botella. No hay riskScore, probabilidades,
+márgenes inventados ni dependencias asumidas; un retraso hipotético no recalcula fechas oficiales.
+
+Long Context aporta objetivos explícitos, decisiones, propuestas y supuestos históricos, nunca
+estado operacional actual. Las correcciones recientes prevalecen y una recomendación puede cambiar
+tras nuevas lecturas. Recall histórico sin provenance sigue limitado a clarification/unavailable.
+Las referencias y Presentation siguen naciendo de evidencia del run; grounding repair no puede
+cambiar answer ni answerMode. Texto, Basic Voice y Live comparten Agent y spokenAnswer derivado.
+Live conserva lifecycle y credenciales; recomendaciones simples normalmente ocupan 2–4 frases.
+
+Sigue siendo read-only: no ejecuta recomendaciones, no genera alertas autónomas ni modifica Backend.
+No hay cambios de DB, migraciones, HTTP público, tools ni Frontend. Las pruebas son offline y
+scripted: cubren contratos, rechazo sin lecturas, comparación, revisión con memoria y tres turnos
+Live con nuevas lecturas; no certifican calidad de razonamiento de OpenAI real ni un smoke pagado.

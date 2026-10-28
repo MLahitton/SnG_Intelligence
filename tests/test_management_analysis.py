@@ -408,6 +408,7 @@ async def test_model_cannot_supply_own_metrics():
         ModelAnswer.model_validate_json(
             json.dumps(
                 {
+                    "answerMode": "factual",
                     "responseType": "management_brief",
                     "answer": "x",
                     "spokenAnswer": "x",

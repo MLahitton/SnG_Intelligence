@@ -22,7 +22,7 @@ def chat_app(settings, transport, model):
 def test_chat_management_guard(settings, mock_backend, payloads, management, status):
     payloads["/api/auth/me"]["isManagement"] = management
     transport, _ = mock_backend
-    model = FakeModel(final())
+    model = FakeModel(final("Hola", mode="conversation"))
     with TestClient(chat_app(settings, transport, model)) as api:
         response = api.post(
             "/api/intelligence/chat",
@@ -35,7 +35,7 @@ def test_chat_management_guard(settings, mock_backend, payloads, management, sta
 
 def test_chat_without_token_is_401(settings, mock_backend):
     transport, calls = mock_backend
-    model = FakeModel(final())
+    model = FakeModel(final("Hola", mode="conversation"))
     with TestClient(chat_app(settings, transport, model)) as api:
         response = api.post("/api/intelligence/chat", json={"message": "Hola"})
     assert response.status_code == 401
@@ -61,7 +61,7 @@ def test_chat_request_closed_and_validation_does_not_echo_inputs(
     settings, mock_backend, body, caplog
 ):
     transport, _ = mock_backend
-    model = FakeModel(final())
+    model = FakeModel(final("Hola", mode="conversation"))
     with TestClient(chat_app(settings, transport, model)) as api:
         response = api.post(
             "/api/intelligence/chat", json=body, headers={"Authorization": f"Bearer {TOKEN}"}
@@ -189,7 +189,7 @@ def test_backend_unavailable_stops_before_model(settings):
     def unavailable(request):
         raise httpx.ConnectError(TOKEN, request=request)
 
-    model = FakeModel(final())
+    model = FakeModel(final("Hola", mode="conversation"))
     with TestClient(chat_app(settings, httpx.MockTransport(unavailable), model)) as api:
         response = api.post(
             "/api/intelligence/chat",
@@ -220,7 +220,7 @@ def test_provider_key_and_google_token_cannot_be_reflected(
 
 def test_independent_requests_have_no_memory(settings, mock_backend):
     transport, _ = mock_backend
-    model = FakeModel(final(), final())
+    model = FakeModel(final("Hola", mode="conversation"), final("Hola", mode="conversation"))
     with TestClient(chat_app(settings, transport, model)) as api:
         for message in ["primera pregunta", "segunda pregunta"]:
             assert (

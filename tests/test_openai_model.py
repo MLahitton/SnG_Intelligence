@@ -33,6 +33,7 @@ def output_message(text=None, **overrides):
     if text is None and not overrides.pop("null_text", False):
         text = json.dumps(
             {
+                "answerMode": "conversation",
                 "responseType": "direct",
                 "answer": "Hola",
                 "spokenAnswer": "Hola",
@@ -374,6 +375,7 @@ async def test_responses_through_core_preserves_dispatch_and_evidence(mock_backe
                     output_message(
                         json.dumps(
                             {
+                                "answerMode": "factual",
                                 "responseType": "direct",
                                 "answer": "Hay 19 proyectos.",
                                 "spokenAnswer": "Hay 19 proyectos.",

@@ -24,6 +24,7 @@ from app.voice.style import speech_instructions
 
 def semantic_payload(**overrides):
     return {
+        "answerMode": "conversation",
         "responseType": "direct",
         "answer": "Hola",
         "spokenAnswer": "Hola",
@@ -467,7 +468,7 @@ async def test_presentation_evidence_does_not_carry_to_next_request(mock_backend
         transport,
     )
     assert result.presentation.metric.value == 19
-    with pytest.raises(UngroundedReference):
+    with pytest.raises(InvalidModelResponse):
         await run_agent(
             FakeModel(
                 final("Hay 19 proyectos.", presentation=["metric:total_projects"]),

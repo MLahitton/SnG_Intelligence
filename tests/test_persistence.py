@@ -107,7 +107,7 @@ def test_append_failure_never_returns_success(
     settings, mock_backend, conversation_repository, monkeypatch
 ):
     transport, _ = mock_backend
-    model = FakeModel(final("Safe answer"))
+    model = FakeModel(final("Hola", mode="conversation"))
     with TestClient(chat_app(settings, transport, model)) as api:
         key = api.post(BASE + "/resume", json={}, headers=AUTH).json()["conversationId"]
         monkeypatch.setattr(
